@@ -1,0 +1,47 @@
+# Data files
+server/data/*
+server/models/*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.Python
+
+# Virtual Environment
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+logs/
+*.log
+
+# Environment variables
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node.js (client)
+client/node_modules/
+client/dist/
+client/.vite/
+
+# Temporary files
+*.tmp
+temp/
