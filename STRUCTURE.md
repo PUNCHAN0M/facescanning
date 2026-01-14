@@ -1,3 +1,4 @@
+```
 server/
 ├── data/
 │   ├── organize1/
@@ -35,7 +36,7 @@ server/
 ├── requirements.txt
 ├── README.md
 └── STRUCTURE.md                 ← ไฟล์นี้ (เอกสารโครงสร้างโปรเจกต์)
-
+```
 
 #structure_data.py
 ```
