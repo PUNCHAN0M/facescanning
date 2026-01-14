@@ -150,8 +150,9 @@ class VectorDatabaseManager:
 
         self._save()
         print("[OK] Re-embedding completed")
-
-
+    
+    def matchUser():
+        pass
 # ================= CLI =================
 
 if __name__ == "__main__":

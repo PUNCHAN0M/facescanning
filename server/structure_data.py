@@ -98,6 +98,44 @@ class FaceDataManager:
 
         print("[INFO] To remove embeddings, delete entries from meta.json and rebuild FAISS.")
 
+    def rename_organize(self, old_name: str, new_name: str):
+        """เปลี่ยนชื่อ organize"""
+        old_dir = self._get_organize_dir(old_name)
+        new_dir = self._get_organize_dir(new_name)
+        
+        if not old_dir.exists():
+            raise ValueError(f"Organize '{old_name}' not found")
+        
+        if new_dir.exists():
+            raise ValueError(f"Organize '{new_name}' already exists")
+        
+        old_dir.rename(new_dir)
+        print(f"[OK] Renamed organize: {old_name} -> {new_name}")
+
+    def rename_person(self, organize: str, old_name: str, new_name: str):
+        """เปลี่ยนชื่อ person"""
+        old_person_dir = self._get_person_face_dir(organize, old_name)
+        new_person_dir = self._get_person_face_dir(organize, new_name)
+        
+        if not old_person_dir.exists():
+            raise ValueError(f"Person '{old_name}' not found in organize '{organize}'")
+        
+        if new_person_dir.exists():
+            raise ValueError(f"Person '{new_name}' already exists in organize '{organize}'")
+        
+        old_person_dir.rename(new_person_dir)
+        print(f"[OK] Renamed person in '{organize}': {old_name} -> {new_name}")
+        print("[INFO] Don't forget to rebuild vectors to update metadata")
+
+    def remove_organize(self, organize: str):
+        """ลบ organize ทั้งหมด"""
+        organize_dir = self._get_organize_dir(organize)
+        if organize_dir.exists():
+            shutil.rmtree(organize_dir)
+            print(f"[OK] Removed organize: {organize_dir}")
+        else:
+            print(f"[WARN] Organize not found: {organize_dir}")
+
     # --- Read / List / Count ---
     def list_organizes(self) -> List[str]:
         if not self.root_dir.exists():
