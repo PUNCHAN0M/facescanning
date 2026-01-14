@@ -22,12 +22,6 @@ server/
 │       │   └── ton/
 │       └── vector/             ← เวกเตอร์เฉพาะของ organize "pupa"
 │
-├── models/
-│   ├── yolo11n.pt
-│   ├── yolov8n-face.pt
-│   ├── yolov11n-face.pt
-│   └── yolov12n-face.pt
-│
 ├── app.py
 ├── arcface.py
 ├── cropped_face.py
