@@ -32,7 +32,7 @@ logs/
 # Environment variables
 .env
 .env.local
-
+node_modules/
 # OS
 .DS_Store
 Thumbs.db
@@ -41,7 +41,6 @@ Thumbs.db
 client/node_modules/
 client/dist/
 client/.vite/
-client/public/
 
 # Temporary files
 *.tmp
