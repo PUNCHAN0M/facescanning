@@ -45,3 +45,4 @@ client/.vite/
 # Temporary files
 *.tmp
 temp/
+*.onnx
