@@ -41,8 +41,20 @@ Thumbs.db
 client/node_modules/
 client/dist/
 client/.vite/
+client/public/
 
 # Temporary files
 *.tmp
 temp/
 *.onnx
+
+# Large files and models
+*.bin
+*.h5
+*.pkl
+*.pth
+*.pt
+
+# Cache files
+*.cache
+.cache/
