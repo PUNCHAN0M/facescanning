@@ -46,7 +46,6 @@ client/public/
 # Temporary files
 *.tmp
 temp/
-*.onnx
 
 # Large files and models
 *.bin
