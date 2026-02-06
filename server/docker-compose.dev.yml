@@ -1,0 +1,36 @@
+name: react-nest-template-dev
+
+services:
+  # Database
+  db_pg:
+    image: postgres:16-alpine
+    container_name: react-nest-template-pg-dev
+    environment:
+      POSTGRES_DB: ${DB_NAME:-react-nest-template_db}
+      POSTGRES_USER: ${DB_USERNAME:-react-nest-template}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      TZ: Asia/Bangkok
+      PGTZ: Asia/Bangkok
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U ${DB_USERNAME:-react-nest-template} -d ${DB_NAME:-react-nest-template_db}',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    ports:
+      - '5433:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - react-nest-template-network
+
+networks:
+  react-nest-template-network:
+    driver: bridge
+
+volumes:
+  postgres_data:

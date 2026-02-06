@@ -1,0 +1,10 @@
+.DS_Store
+
+node_modules
+pnpm-lock.yaml
+
+client/.env
+client/.env.prod
+
+server/.env
+server/.env.prod

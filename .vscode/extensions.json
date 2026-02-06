@@ -1,0 +1,32 @@
+{
+  "recommendations": [
+    // Container Development
+    "ms-vscode-remote.remote-containers",
+    "ms-vscode.vscode-docker",
+
+    // General / Utility Extensions
+    "esbenp.prettier-vscode", // Code formatter
+    "ms-vscode.vscode-typescript-next", // Official TypeScript/JavaScript extension
+    "aaron-bond.better-comments", // Improve comments readability
+    "waderyan.gitblame", // Git Blame information in status bar
+    "eamodio.gitlens", // Git capabilities supercharged
+    "formulahendry.auto-rename-tag", // Auto rename paired HTML/XML tag
+    "vscode-icons.vscode-icons", // Material Icon Theme (already in settings, but good to recommend)
+    "PKief.material-icon-theme", // Better icons for VS Code (already in settings)
+    "wayou.vscode-todo-highlight", // Highlight TODOs, FIXMEs, etc.
+
+    // Language Specific Extensions
+    // JavaScript / TypeScript / React
+    "dbaeumer.vscode-eslint", // ESLint integration
+    "steo.json-prettify", // JSON formatter (alternative/backup)
+    "redhat.vscode-yaml", // YAML Language Support
+    "bradlc.vscode-tailwindcss", // Tailwind CSS IntelliSense
+    "prisma.prisma", // Prisma Language Tools
+
+    // SQL
+    "inferrinizzard.prettier-sql-vscode", // Prettier for SQL (already in settings, but good to recommend)
+
+    // Path Intellisense
+    "christian-kohler.path-intellisense" // Autocompletes filenames
+  ]
+}

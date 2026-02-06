@@ -1,0 +1,36 @@
+{
+  "name": "react-nest-template",
+  "private": true,
+  "version": "1.0.0",
+  "author": "",
+  "description": "React Nest Template",
+  "license": "UNLICENSED",
+  "scripts": {
+    "format:client": "pnpm --filter client format",
+    "format:server": "pnpm --filter server format",
+    "format:ai": "cd ai && poetry run black .",
+    "lint:client": "pnpm --filter client lint:fix",
+    "lint:server": "pnpm --filter server lint:fix",
+    "lint:ai": "cd ai && poetry run ruff check . --fix",
+    "format": "prettier -w . --ignore-unknown && pnpm format:client && pnpm format:server && pnpm format:ai",
+    "lint": "pnpm lint:client && pnpm lint:server && pnpm lint:ai && node scripts/cross/clean-branches.js || true",
+    "prepare": "husky",
+    "_Production Deployment": "Production Deployment",
+    "build": "node scripts/cross/build-prod.js",
+    "prod": "node scripts/cross/start-prod.js",
+    "prod:stop": "node scripts/cross/stop-prod.js"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^18.6.1",
+    "@commitlint/config-conventional": "^18.6.3",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.5.2",
+    "prettier": "^3.5.3",
+    "prettier-plugin-tailwindcss": "^0.6.11"
+  },
+  "commitlint": {
+    "extends": [
+      "@commitlint/config-conventional"
+    ]
+  }
+}
