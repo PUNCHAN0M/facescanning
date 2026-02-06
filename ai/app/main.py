@@ -38,4 +38,4 @@ app.include_router(api_router, prefix=app_config.API_STR)
 
 @app.get("/")
 async def root():
-    return {"message": "Welcome to the AI for Face ID Office!"}
+    return {"message": "Welcome to the AI for Face Scan!"}
