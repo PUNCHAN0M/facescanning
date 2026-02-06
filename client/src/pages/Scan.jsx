@@ -9,7 +9,12 @@ const STRIDES = [8, 16, 32];
 
 const YOLO_INPUT = 640;
 const YOLO_CONF = 0.5;
-const PADDING_PX = 40;
+const PADDING_PX = 0;
+
+const MBF_INPUT = 112;
+
+const SERVER_URL = "http://localhost:8000";
+const SEARCH_INTERVAL_MS = 700;
 
 /* ================= COMPONENT ================= */
 export default function Scan() {
@@ -20,11 +25,36 @@ export default function Scan() {
 
   const sessionRef = useRef(null);
   const yoloRef = useRef(null);
+  const mbfRef = useRef(null);
   const rafRef = useRef(null);
   const lastTimeRef = useRef(performance.now());
+  const lastSearchTimeRef = useRef(0);
+  const isSearchingRef = useRef(false);
 
   const [running, setRunning] = useState(false);
   const [fps, setFps] = useState(0);
+  const [embeddingDims, setEmbeddingDims] = useState(null);
+
+  const [organizes, setOrganizes] = useState([]);
+  const [selectedOrganize, setSelectedOrganize] = useState("");
+  const [matchPerson, setMatchPerson] = useState("-");
+  const [matchSimilarity, setMatchSimilarity] = useState("-");
+
+  // Organize Management States
+  const [members, setMembers] = useState([]);
+  const [isLoadingMembers, setIsLoadingMembers] = useState(false);
+  const [isRebuilding, setIsRebuilding] = useState(false);
+  const [newOrganizeName, setNewOrganizeName] = useState("");
+  const [newMemberName, setNewMemberName] = useState("");
+  
+  // Modal states
+  const [showModal, setShowModal] = useState(false);
+  const [currentMember, setCurrentMember] = useState(null);
+  const [memberImages, setMemberImages] = useState([]);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isCameraOn, setIsCameraOn] = useState(false);
+  const videoModalRef = useRef(null);
 
   /* ================= LOAD MODEL ================= */
   useEffect(() => {
@@ -37,10 +67,332 @@ export default function Scan() {
         "/yolov12n-face.onnx",
         { executionProviders: ["wasm"] }
       );
+      mbfRef.current = await ort.InferenceSession.create(
+        "/w600k_mbf.onnx",
+        { executionProviders: ["wasm"] }
+      );
       console.log("Models loaded");
     }
     load();
   }, []);
+
+  useEffect(() => {
+    async function loadOrganizes() {
+      try {
+        const res = await fetch(`${SERVER_URL}/organizes`);
+        const data = await res.json();
+        const orgs = data.organizes || [];
+        setOrganizes(orgs);
+        if (!selectedOrganize && orgs.length > 0) {
+          setSelectedOrganize(orgs[0]);
+        }
+      } catch (e) {
+        console.warn("Failed to fetch organizes:", e);
+      }
+    }
+    loadOrganizes();
+  }, []);
+
+  // Fetch organize details when selected organize changes
+  useEffect(() => {
+    if (selectedOrganize) {
+      fetchOrganizeDetails(selectedOrganize);
+    } else {
+      setMembers([]);
+    }
+  }, [selectedOrganize]);
+
+  /* ================= FETCH DATA ================= */
+  const fetchOrganizes = async () => {
+    try {
+      const res = await fetch(`${SERVER_URL}/organizes`);
+      const data = await res.json();
+      setOrganizes(data.organizes || []);
+    } catch (e) {
+      console.error("Failed to fetch organizes:", e);
+    }
+  };
+
+  const fetchOrganizeDetails = async (organizeName) => {
+    if (!organizeName) return;
+    setIsLoadingMembers(true);
+    try {
+      const res = await fetch(`${SERVER_URL}/organize/${organizeName}/details`);
+      const data = await res.json();
+      setMembers(data.members || []);
+    } catch (e) {
+      console.error("Failed to fetch organize details:", e);
+      setMembers([]);
+    }
+    setIsLoadingMembers(false);
+  };
+
+  /* ================= ORGANIZE MANAGEMENT ================= */
+  const handleAddOrganize = async () => {
+    if (!newOrganizeName.trim()) {
+      alert("กรุณากรอกชื่อ organize");
+      return;
+    }
+    try {
+      const res = await fetch(`${SERVER_URL}/organize/create?organize_name=${encodeURIComponent(newOrganizeName)}`, {
+        method: "POST"
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(data.message);
+        setNewOrganizeName("");
+        await fetchOrganizes();
+      } else {
+        alert(data.detail || "เกิดข้อผิดพลาด");
+      }
+    } catch (e) {
+      console.error("Failed to create organize:", e);
+      alert("เกิดข้อผิดพลาดในการสร้าง organize");
+    }
+  };
+
+  const handleEditOrganize = async (oldName) => {
+    const newName = prompt("กรุณากรอกชื่อ organize ใหม่:", oldName);
+    if (!newName || newName.trim() === "" || newName.trim() === oldName) return;
+    try {
+      const res = await fetch(`${SERVER_URL}/organize/${encodeURIComponent(oldName)}/rename?new_name=${encodeURIComponent(newName.trim())}`, {
+        method: "PUT"
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(`✅ ${data.message}`);
+        if (selectedOrganize === oldName) setSelectedOrganize(newName.trim());
+        await fetchOrganizes();
+      } else {
+        alert(`❌ เกิดข้อผิดพลาด: ${data.detail || 'Unknown error'}`);
+      }
+    } catch (e) {
+      console.error("Error renaming organize:", e);
+      alert("❌ เกิดข้อผิดพลาดในการเปลี่ยนชื่อ organize");
+    }
+  };
+
+  const handleDeleteOrganize = async (organizeName) => {
+    if (!confirm(`ต้องการลบ organize "${organizeName}" หรือไม่?\n\n⚠️ การลบจะลบข้อมูลทั้งหมดภายใน organize นี้ รวมถึง:\n- สมาชิกทั้งหมด\n- รูปภาพทั้งหมด\n- Vector ทั้งหมด`)) return;
+    try {
+      const res = await fetch(`${SERVER_URL}/organize/${encodeURIComponent(organizeName)}`, {
+        method: "DELETE"
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(`✅ ${data.message}`);
+        if (selectedOrganize === organizeName) {
+          setSelectedOrganize("");
+          setMembers([]);
+        }
+        await fetchOrganizes();
+      } else {
+        alert(`❌ เกิดข้อผิดพลาด: ${data.detail || 'Unknown error'}`);
+      }
+    } catch (e) {
+      console.error("Error deleting organize:", e);
+      alert("❌ เกิดข้อผิดพลาดในการลบ organize");
+    }
+  };
+
+  /* ================= MEMBER MANAGEMENT ================= */
+  const handleAddMember = async () => {
+    if (!selectedOrganize) {
+      alert("กรุณาเลือก organize ก่อน");
+      return;
+    }
+    if (!newMemberName.trim()) {
+      alert("กรุณากรอกชื่อสมาชิก");
+      return;
+    }
+    try {
+      const res = await fetch(`${SERVER_URL}/organize/${selectedOrganize}/member?person_name=${encodeURIComponent(newMemberName)}`, {
+        method: "POST"
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(data.message);
+        setNewMemberName("");
+        await fetchOrganizeDetails(selectedOrganize);
+      } else {
+        alert(data.detail || "เกิดข้อผิดพลาด");
+      }
+    } catch (e) {
+      console.error("Failed to create member:", e);
+      alert("เกิดข้อผิดพลาดในการเพิ่มสมาชิก");
+    }
+  };
+
+  const handleEditMember = async (member) => {
+    const newName = prompt("กรุณากรอกชื่อสมาชิกใหม่:", member.person_name);
+    if (!newName || newName.trim() === "" || newName.trim() === member.person_name) return;
+    try {
+      const res = await fetch(`${SERVER_URL}/organize/${encodeURIComponent(selectedOrganize)}/member/${encodeURIComponent(member.person_name)}/rename?new_name=${encodeURIComponent(newName.trim())}`, {
+        method: "PUT"
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(`✅ ${data.message}`);
+        await fetchOrganizeDetails(selectedOrganize);
+      } else {
+        alert(`❌ เกิดข้อผิดพลาด: ${data.detail || 'Unknown error'}`);
+      }
+    } catch (e) {
+      console.error("Error renaming member:", e);
+      alert("❌ เกิดข้อผิดพลาดในการเปลี่ยนชื่อสมาชิก");
+    }
+  };
+
+  const handleDeleteMember = async (member) => {
+    if (!confirm(`ต้องการลบสมาชิก "${member.person_name}" หรือไม่?\n\n⚠️ การลบจะลบ:\n- รูปภาพทั้งหมด (${member.image_count} รูป)\n- Vector ทั้งหมด (${member.vector_count} vectors)\n\n💡 อย่าลืม "บีบอัด Vector" หลังลบเพื่ออัปเดต database`)) return;
+    try {
+      const res = await fetch(`${SERVER_URL}/organize/${encodeURIComponent(selectedOrganize)}/member/${encodeURIComponent(member.person_name)}`, {
+        method: "DELETE"
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(`✅ ${data.message}`);
+        await fetchOrganizeDetails(selectedOrganize);
+      } else {
+        alert(`❌ เกิดข้อผิดพลาด: ${data.detail || 'Unknown error'}`);
+      }
+    } catch (e) {
+      console.error("Error deleting member:", e);
+      alert("❌ เกิดข้อผิดพลาดในการลบสมาชิก");
+    }
+  };
+
+  const handleRebuildVectors = async () => {
+    if (!selectedOrganize) {
+      alert("กรุณาเลือก organize ก่อน");
+      return;
+    }
+    if (!confirm(`ต้องการบีบอัด vector ของ ${selectedOrganize} หรือไม่?\n\n⏳ การดำเนินการนี้อาจใช้เวลาสักครู่`)) return;
+    setIsRebuilding(true);
+    try {
+      const res = await fetch(`${SERVER_URL}/organize/${encodeURIComponent(selectedOrganize)}/rebuild`, {
+        method: "POST"
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(`✅ ${data.message}\n\nTotal vectors: ${data.total_vectors}`);
+        await fetchOrganizeDetails(selectedOrganize);
+      } else {
+        alert(`❌ เกิดข้อผิดพลาด: ${data.detail || 'Unknown error'}`);
+      }
+    } catch (e) {
+      console.error("Failed to rebuild vectors:", e);
+      alert("❌ เกิดข้อผิดพลาดในการบีบอัด vector");
+    }
+    setIsRebuilding(false);
+  };
+
+  /* ================= IMAGE MANAGEMENT ================= */
+  const openImageModal = async (member) => {
+    setCurrentMember(member);
+    setShowModal(true);
+    await fetchMemberImages(member.person_name);
+  };
+
+  const closeModal = () => {
+    setShowModal(false);
+    setCurrentMember(null);
+    setMemberImages([]);
+    setSelectedFile(null);
+    stopModalCamera();
+  };
+
+  const fetchMemberImages = async (personName) => {
+    try {
+      const res = await fetch(`${SERVER_URL}/organize/${selectedOrganize}/member/${personName}/images`);
+      const data = await res.json();
+      setMemberImages(data.images || []);
+    } catch (e) {
+      console.error("Failed to fetch images:", e);
+    }
+  };
+
+  const handleFileSelect = (e) => {
+    setSelectedFile(e.target.files[0]);
+  };
+
+  const startModalCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      if (videoModalRef.current) {
+        videoModalRef.current.srcObject = stream;
+      }
+      setIsCameraOn(true);
+    } catch (e) {
+      console.error("Failed to start modal camera:", e);
+      alert("ไม่สามารถเปิดกล้องได้");
+    }
+  };
+
+  const stopModalCamera = () => {
+    if (videoModalRef.current?.srcObject) {
+      videoModalRef.current.srcObject.getTracks().forEach(t => t.stop());
+    }
+    setIsCameraOn(false);
+  };
+
+  const handleUploadImage = async () => {
+    if (!selectedFile && !isCameraOn) {
+      alert("กรุณาเลือกไฟล์หรือถ่ายภาพ");
+      return;
+    }
+    setIsUploading(true);
+    const fd = new FormData();
+    if (selectedFile) {
+      fd.append("file", selectedFile);
+    } else if (isCameraOn && videoModalRef.current) {
+      const canvas = document.createElement("canvas");
+      canvas.width = videoModalRef.current.videoWidth;
+      canvas.height = videoModalRef.current.videoHeight;
+      canvas.getContext("2d").drawImage(videoModalRef.current, 0, 0);
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/jpeg"));
+      fd.append("file", blob, "captured.jpg");
+    }
+    try {
+      const res = await fetch(`${SERVER_URL}/organize/${selectedOrganize}/member/${currentMember.person_name}/upload`, {
+        method: "POST",
+        body: fd
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert("อัปโหลดสำเร็จ");
+        setSelectedFile(null);
+        await fetchMemberImages(currentMember.person_name);
+        await fetchOrganizeDetails(selectedOrganize);
+      } else {
+        alert(data.detail || "เกิดข้อผิดพลาด");
+      }
+    } catch (e) {
+      console.error("Upload error:", e);
+      alert("เกิดข้อผิดพลาดในการอัปโหลด");
+    }
+    setIsUploading(false);
+  };
+
+  const handleDeleteImage = async (filename) => {
+    if (!confirm(`ต้องการลบภาพ ${filename} หรือไม่?`)) return;
+    try {
+      const res = await fetch(`${SERVER_URL}/organize/${selectedOrganize}/member/${currentMember.person_name}/image/${filename}`, {
+        method: "DELETE"
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert("ลบสำเร็จ");
+        await fetchMemberImages(currentMember.person_name);
+        await fetchOrganizeDetails(selectedOrganize);
+      } else {
+        alert(data.detail || "เกิดข้อผิดพลาด");
+      }
+    } catch (e) {
+      console.error("Delete error:", e);
+      alert("เกิดข้อผิดพลาดในการลบภาพ");
+    }
+  };
 
   /* ================= CAMERA ================= */
   const startCamera = async () => {
@@ -315,68 +667,278 @@ export default function Scan() {
     });
   }
 
-  /* ================= ALIGN DRAW ================= */
+  /* ================= ARCFACE ALIGNMENT ================= */
+  // ArcFace standard reference landmarks for 112x112 output
+  // Order: [left_eye, right_eye, nose, mouth_left, mouth_right]
+  const ARCFACE_REF_112 = [
+    [38.2946, 51.6963],
+    [73.5318, 51.5014],
+    [56.0252, 71.7366],
+    [41.5493, 92.3655],
+    [70.7299, 92.2041]
+  ];
+
+  /**
+   * Compute similarity transform (scale, rotation, translation) using Umeyama algorithm
+   * This is the standard method used in InsightFace/ArcFace
+   */
+  function umeyamaSimilarityTransform(src, dst) {
+    const n = src.length;
+    if (n < 2) return null;
+
+    // 1. Compute mean
+    let srcMeanX = 0, srcMeanY = 0, dstMeanX = 0, dstMeanY = 0;
+    for (let i = 0; i < n; i++) {
+      srcMeanX += src[i][0];
+      srcMeanY += src[i][1];
+      dstMeanX += dst[i][0];
+      dstMeanY += dst[i][1];
+    }
+    srcMeanX /= n; srcMeanY /= n;
+    dstMeanX /= n; dstMeanY /= n;
+
+    // 2. Compute centered coordinates and variance
+    const srcCentered = [];
+    const dstCentered = [];
+    let srcVar = 0;
+    
+    for (let i = 0; i < n; i++) {
+      const sx = src[i][0] - srcMeanX;
+      const sy = src[i][1] - srcMeanY;
+      const dx = dst[i][0] - dstMeanX;
+      const dy = dst[i][1] - dstMeanY;
+      srcCentered.push([sx, sy]);
+      dstCentered.push([dx, dy]);
+      srcVar += sx * sx + sy * sy;
+    }
+    srcVar /= n;
+    if (srcVar < 1e-10) return null;
+
+    // 3. Compute covariance matrix (2x2)
+    // cov = dst^T * src / n
+    let cov00 = 0, cov01 = 0, cov10 = 0, cov11 = 0;
+    for (let i = 0; i < n; i++) {
+      cov00 += dstCentered[i][0] * srcCentered[i][0];
+      cov01 += dstCentered[i][0] * srcCentered[i][1];
+      cov10 += dstCentered[i][1] * srcCentered[i][0];
+      cov11 += dstCentered[i][1] * srcCentered[i][1];
+    }
+    cov00 /= n; cov01 /= n; cov10 /= n; cov11 /= n;
+
+    // 4. SVD of 2x2 matrix: cov = U * S * V^T
+    // For 2x2, we can compute analytically
+    const { U, S, V } = svd2x2(cov00, cov01, cov10, cov11);
+
+    // 5. Compute rotation matrix R = U * V^T
+    // Check for reflection
+    let det = (U[0][0] * U[1][1] - U[0][1] * U[1][0]) * (V[0][0] * V[1][1] - V[0][1] * V[1][0]);
+    
+    const d = det < 0 ? -1 : 1;
+    const Vt = [[V[0][0], V[1][0]], [V[0][1] * d, V[1][1] * d]];
+    
+    // R = U * Vt
+    const R = [
+      [U[0][0] * Vt[0][0] + U[0][1] * Vt[1][0], U[0][0] * Vt[0][1] + U[0][1] * Vt[1][1]],
+      [U[1][0] * Vt[0][0] + U[1][1] * Vt[1][0], U[1][0] * Vt[0][1] + U[1][1] * Vt[1][1]]
+    ];
+
+    // 6. Compute scale
+    const traceS = S[0] + (det < 0 ? -S[1] : S[1]);
+    const scale = traceS / srcVar;
+
+    // 7. Compute translation
+    const tx = dstMeanX - scale * (R[0][0] * srcMeanX + R[0][1] * srcMeanY);
+    const ty = dstMeanY - scale * (R[1][0] * srcMeanX + R[1][1] * srcMeanY);
+
+    // Return transformation matrix components
+    // Canvas setTransform(a, b, c, d, e, f) applies: x' = ax + cy + e, y' = bx + dy + f
+    return {
+      a: scale * R[0][0],
+      b: scale * R[1][0],
+      c: scale * R[0][1],
+      d: scale * R[1][1],
+      tx: tx,
+      ty: ty
+    };
+  }
+
+  /**
+   * SVD for 2x2 matrix using analytical solution
+   */
+  function svd2x2(a, b, c, d) {
+    // Compute A^T * A
+    const ata00 = a * a + c * c;
+    const ata01 = a * b + c * d;
+    const ata11 = b * b + d * d;
+
+    // Eigenvalues of A^T * A
+    const trace = ata00 + ata11;
+    const det = ata00 * ata11 - ata01 * ata01;
+    const disc = Math.sqrt(Math.max(0, trace * trace / 4 - det));
+    const s1Sq = trace / 2 + disc;
+    const s2Sq = trace / 2 - disc;
+    const s1 = Math.sqrt(Math.max(0, s1Sq));
+    const s2 = Math.sqrt(Math.max(0, s2Sq));
+
+    // Compute V (eigenvectors of A^T * A)
+    let V;
+    if (Math.abs(ata01) > 1e-10) {
+      const v1x = ata01;
+      const v1y = s1Sq - ata00;
+      const len1 = Math.hypot(v1x, v1y) || 1;
+      const v2x = ata01;
+      const v2y = s2Sq - ata00;
+      const len2 = Math.hypot(v2x, v2y) || 1;
+      V = [[v1x / len1, v2x / len2], [v1y / len1, v2y / len2]];
+    } else {
+      V = [[1, 0], [0, 1]];
+    }
+
+    // Compute U = A * V * S^-1
+    let U;
+    if (s1 > 1e-10) {
+      const u1x = (a * V[0][0] + b * V[1][0]) / s1;
+      const u1y = (c * V[0][0] + d * V[1][0]) / s1;
+      let u2x, u2y;
+      if (s2 > 1e-10) {
+        u2x = (a * V[0][1] + b * V[1][1]) / s2;
+        u2y = (c * V[0][1] + d * V[1][1]) / s2;
+      } else {
+        // Orthogonal to u1
+        u2x = -u1y;
+        u2y = u1x;
+      }
+      U = [[u1x, u2x], [u1y, u2y]];
+    } else {
+      U = [[1, 0], [0, 1]];
+    }
+
+    return { U, S: [s1, s2], V };
+  }
+
+  /**
+   * ArcFace-style face alignment using 5-point landmarks
+   * Uses Umeyama similarity transform (same as InsightFace)
+   */
   function drawAlignedFace(crop, face) {
     const c = alignCanvasRef.current;
-    if (!c || !face) return;
+    if (!c || !face || face.landmarks.length < 5) return;
 
-    // Fixed output size for aligned face
-    const OUT = 256;
+    // Output size
+    const OUT = 112;
     c.width = OUT;
     c.height = OUT;
     const ctx = c.getContext("2d");
-    ctx.clearRect(0, 0, OUT, OUT);
+    ctx.fillStyle = "#808080"; // gray background
+    ctx.fillRect(0, 0, OUT, OUT);
 
-    // Assume SCRFD landmark order: [left_eye, right_eye, nose, mouth_left, mouth_right]
-    const [bx1, by1, bx2, by2] = face.bbox;
-    const bw = Math.max(1, bx2 - bx1);
-    const bh = Math.max(1, by2 - by1);
+    // Source landmarks from detection (relative to crop canvas)
+    // SCRFD order: [left_eye, right_eye, nose, mouth_left, mouth_right]
+    const srcPts = face.landmarks.map(p => [p.x, p.y]);
 
-    // Crop a tighter patch around the face bbox (small extra padding),
-    // so we don't include YOLO padding/background in the aligned view.
-    const extra = 0.08 * Math.max(bw, bh); // ~8% extra around bbox
-    const px1 = Math.max(0, Math.floor(bx1 - extra));
-    const py1 = Math.max(0, Math.floor(by1 - extra));
-    const px2 = Math.min(crop.w, Math.ceil(bx2 + extra));
-    const py2 = Math.min(crop.h, Math.ceil(by2 + extra));
-    const pw = Math.max(1, px2 - px1);
-    const ph = Math.max(1, py2 - py1);
+    // Destination landmarks (ArcFace reference for 112x112)
+    const dstPts = ARCFACE_REF_112;
 
-    const patch = document.createElement("canvas");
-    patch.width = pw;
-    patch.height = ph;
-    patch.getContext("2d").drawImage(crop.canvas, px1, py1, pw, ph, 0, 0, pw, ph);
+    // Estimate similarity transform using Umeyama algorithm
+    const M = umeyamaSimilarityTransform(srcPts, dstPts);
+    if (!M) return;
 
-    // Convert landmarks to patch-local coordinates
-    const leftEye = { x: face.landmarks[0].x - px1, y: face.landmarks[0].y - py1 };
-    const rightEye = { x: face.landmarks[1].x - px1, y: face.landmarks[1].y - py1 };
-
-    const center = {
-      x: (pw) / 2,
-      y: (ph) / 2
-    };
-
-    const angle = Math.atan2(rightEye.y - leftEye.y, rightEye.x - leftEye.x);
-
-    // Smaller margin = less background border
-    const margin = 1.1;
-    const scale = Math.min(OUT / (pw * margin), OUT / (ph * margin));
-
+    // Apply transform
+    // Canvas setTransform(a, b, c, d, e, f): x' = ax + cy + e, y' = bx + dy + f
     ctx.save();
-    ctx.translate(OUT / 2, OUT / 2);
-    ctx.rotate(-angle);
-    ctx.scale(scale, scale);
-    ctx.drawImage(patch, -center.x, -center.y);
+    ctx.setTransform(M.a, M.b, M.c, M.d, M.tx, M.ty);
+    ctx.drawImage(crop.canvas, 0, 0);
     ctx.restore();
+  }
 
-    // Optional: outline
-    ctx.strokeStyle = "#888";
-    ctx.strokeRect(0, 0, OUT, OUT);
+  /* ================= MBF EMBEDDING ================= */
+  function preprocessMbfFromCanvas(srcCanvas) {
+    const c = document.createElement("canvas");
+    c.width = MBF_INPUT;
+    c.height = MBF_INPUT;
+    const ctx = c.getContext("2d");
+    ctx.drawImage(srcCanvas, 0, 0, MBF_INPUT, MBF_INPUT);
+
+    const img = ctx.getImageData(0, 0, MBF_INPUT, MBF_INPUT).data;
+    const input = new Float32Array(1 * 3 * MBF_INPUT * MBF_INPUT);
+    const HW = MBF_INPUT * MBF_INPUT;
+
+    // Normalize similar to ArcFace-style: (x - 127.5) / 128
+    for (let i = 0; i < HW; i++) {
+      const r = img[i * 4];
+      const g = img[i * 4 + 1];
+      const b = img[i * 4 + 2];
+      input[i] = (r - 127.5) / 128;
+      input[HW + i] = (g - 127.5) / 128;
+      input[2 * HW + i] = (b - 127.5) / 128;
+    }
+
+    return new ort.Tensor("float32", input, [1, 3, MBF_INPUT, MBF_INPUT]);
+  }
+
+  function l2Normalize(vec) {
+    let sum = 0;
+    for (let i = 0; i < vec.length; i++) sum += vec[i] * vec[i];
+    const norm = Math.sqrt(sum) || 1;
+    const out = new Float32Array(vec.length);
+    for (let i = 0; i < vec.length; i++) out[i] = vec[i] / norm;
+    return out;
+  }
+
+  async function runMbfEmbedding() {
+    const mbf = mbfRef.current;
+    const aligned = alignCanvasRef.current;
+    if (!mbf || !aligned) return null;
+    const inputTensor = preprocessMbfFromCanvas(aligned);
+    const outputs = await mbf.run({ [mbf.inputNames[0]]: inputTensor });
+    const out = outputs[mbf.outputNames[0]] ?? Object.values(outputs)[0];
+    const emb = out.data;
+    return l2Normalize(emb);
+  }
+
+  async function searchFaissByEmbedding(emb) {
+    if (!selectedOrganize) return;
+    const now = performance.now();
+    if (isSearchingRef.current) return;
+    if (now - lastSearchTimeRef.current < SEARCH_INTERVAL_MS) return;
+
+    lastSearchTimeRef.current = now;
+    isSearchingRef.current = true;
+    try {
+      const res = await fetch(
+        `${SERVER_URL}/organize/${encodeURIComponent(selectedOrganize)}/search_vector`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ embedding: Array.from(emb), k: 1 })
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        setMatchPerson("-");
+        setMatchSimilarity("-");
+        console.warn("search_vector error:", data);
+        return;
+      }
+      if (data.status === "success") {
+        setMatchPerson(data.person ?? "-");
+        setMatchSimilarity(typeof data.similarity === "number" ? data.similarity.toFixed(4) : "-");
+      } else {
+        setMatchPerson("unknown");
+        setMatchSimilarity("-");
+      }
+    } catch (e) {
+      console.warn("search_vector failed:", e);
+    } finally {
+      isSearchingRef.current = false;
+    }
   }
 
   /* ================= LOOP ================= */
   async function detectLoop() {
-    if (!sessionRef.current || !yoloRef.current) return;
+    if (!sessionRef.current || !yoloRef.current || !mbfRef.current) return;
+
+    const tLoopStart = performance.now();
 
     const v = videoRef.current;
     const c = canvasRef.current;
@@ -384,11 +946,14 @@ export default function Scan() {
     c.height = v.videoHeight;
     const ctx = c.getContext("2d");
 
+    // YOLO Detection
+    const tYoloStart = performance.now();
     const yprep = preprocessYolo(v);
     let dets = parseYOLO(
       await yoloRef.current.run({ [yoloRef.current.inputNames[0]]: yprep.tensor }),
       yprep
     );
+    const tYoloDone = performance.now();
 
     dets = nms(dets)
       .sort((a, b) => b.conf * boxArea(b.bbox) - a.conf * boxArea(a.bbox))
@@ -397,6 +962,8 @@ export default function Scan() {
     ctx.clearRect(0, 0, c.width, c.height);
 
     for (const d of dets) {
+      // SCRFD Landmark Detection
+      const tScrfdStart = performance.now();
       const crop = cropWithPad(v, d.bbox, PADDING_PX);
       const faces = parseSCRFD(
         await sessionRef.current.run({
@@ -405,12 +972,46 @@ export default function Scan() {
         crop.w,
         crop.h
       );
+      const tScrfdDone = performance.now();
 
       const best = pickBestFace(nms(faces));
       if (!best) continue;
 
+      // Alignment
+      const tAlignStart = performance.now();
       drawCrop(crop, best);
       drawAlignedFace(crop, best);
+      const tAlignDone = performance.now();
+
+      // Generate embedding from aligned face
+      try {
+        const tEmbedStart = performance.now();
+        const emb = await runMbfEmbedding();
+        const tEmbedDone = performance.now();
+        
+        if (emb) {
+          if (embeddingDims == null) setEmbeddingDims(emb.length);
+          
+          const tSearchStart = performance.now();
+          await searchFaissByEmbedding(emb);
+          const tSearchDone = performance.now();
+
+          // Log timing (only every 30 frames to reduce console spam)
+          if (Math.random() < 0.033) {
+            console.log(
+              `[TIMING] Client Pipeline:\n` +
+              `  YOLO: ${(tYoloDone - tYoloStart).toFixed(1)}ms\n` +
+              `  SCRFD: ${(tScrfdDone - tScrfdStart).toFixed(1)}ms\n` +
+              `  Align: ${(tAlignDone - tAlignStart).toFixed(1)}ms\n` +
+              `  Embed: ${(tEmbedDone - tEmbedStart).toFixed(1)}ms\n` +
+              `  Search: ${(tSearchDone - tSearchStart).toFixed(1)}ms\n` +
+              `  Total: ${(performance.now() - tLoopStart).toFixed(1)}ms`
+            );
+          }
+        }
+      } catch (e) {
+        console.warn("MBF embedding failed:", e);
+      }
 
       const gb = [
         crop.x1 + best.bbox[0],
@@ -440,36 +1041,317 @@ export default function Scan() {
 
   /* ================= UI ================= */
   return (
-    <div style={{ display: "flex", gap: 20 }}>
-      {/* Original video with overlay */}
-      <div style={{ position: "relative" }}>
-        <video ref={videoRef} muted playsInline />
-        <canvas ref={canvasRef} style={{ position: "absolute", top: 0 }} />
-        {!running ? (
-          <button onClick={startCamera}>Start</button>
-        ) : (
-          <button onClick={stopCamera}>Stop</button>
+    <div style={{ padding: 20 }}>
+      <h1>Face Scanning</h1>
+      
+      <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+        {/* Original video with overlay */}
+        <div style={{ position: "relative" }}>
+          <video ref={videoRef} muted playsInline style={{ maxWidth: 640 }} />
+          <canvas ref={canvasRef} style={{ position: "absolute", top: 0, left: 0 }} />
+          {!running ? (
+            <button onClick={startCamera}>Start</button>
+          ) : (
+            <button onClick={stopCamera}>Stop</button>
+          )}
+          <p>FPS: {fps}</p>
+        </div>
+
+        {/* YOLO cropped + keypoints */}
+        <div>
+          <h3>YOLO Cropped + Keypoints</h3>
+          <canvas
+            ref={cropCanvasRef}
+            style={{ border: "1px solid #ccc", position: "relative", pointerEvents: "auto" }}
+          />
+        </div>
+
+        {/* Aligned face image */}
+        <div>
+          <h3>Aligned Face</h3>
+          <canvas
+            ref={alignCanvasRef}
+            style={{ border: "1px solid #ccc", position: "relative", pointerEvents: "auto" }}
+          />
+          <p style={{ maxWidth: 280 }}>
+            Embedding: {embeddingDims ? `${embeddingDims} dims` : "-"}
+          </p>
+          <p style={{ maxWidth: 280 }}>
+            Result: {matchPerson} (conf: {matchSimilarity})
+          </p>
+        </div>
+      </div>
+
+      {/* Detection Result Display */}
+      <div className="detection-result" style={{ marginTop: 20, padding: 15, backgroundColor: "#f5f5f5", borderRadius: 8 }}>
+        <h3>Detection Result</h3>
+        <p><strong>Current Detection:</strong> {matchPerson}</p>
+        <p><strong>Confidence:</strong> {matchSimilarity}</p>
+      </div>
+
+      {/* Organize Management */}
+      <div className="organize-section" style={{ marginTop: 20, padding: 20, backgroundColor: "#fafafa", borderRadius: 8 }}>
+        <h2>Organize Management</h2>
+        
+        <div className="organize-selector" style={{ marginBottom: 15 }}>
+          <label>เลือก Organize: </label>
+          <select 
+            value={selectedOrganize} 
+            onChange={(e) => setSelectedOrganize(e.target.value)}
+            style={{ padding: "5px 10px", marginRight: 10 }}
+          >
+            <option value="">-- เลือก organize --</option>
+            {organizes.map((org) => (
+              <option key={org} value={org}>{org}</option>
+            ))}
+          </select>
+          <span style={{ marginLeft: '10px' }}>
+            ({organizes.length} organize{organizes.length !== 1 ? 's' : ''})
+          </span>
+          {selectedOrganize && (
+            <div style={{ display: 'inline-block', marginLeft: '10px' }}>
+              <button 
+                onClick={() => handleEditOrganize(selectedOrganize)}
+                style={{ backgroundColor: '#ffa500', color: 'white', marginRight: '5px', padding: '5px 10px', border: 'none', cursor: 'pointer', borderRadius: '3px' }}
+              >
+                แก้ไข
+              </button>
+              <button 
+                onClick={() => handleDeleteOrganize(selectedOrganize)}
+                style={{ backgroundColor: '#dc3545', color: 'white', padding: '5px 10px', border: 'none', cursor: 'pointer', borderRadius: '3px' }}
+              >
+                ลบ
+              </button>
+            </div>
+          )}
+          <div className="add-organize" style={{ marginTop: 10 }}>
+            <input
+              type="text"
+              placeholder="ชื่อ organize ใหม่"
+              value={newOrganizeName}
+              onChange={(e) => setNewOrganizeName(e.target.value)}
+              style={{ padding: "5px 10px", marginRight: 10 }}
+            />
+            <button onClick={handleAddOrganize} style={{ padding: "5px 15px" }}>เพิ่ม organize ใหม่</button>
+          </div>
+        </div>
+
+        {selectedOrganize && (
+          <>
+            <h3>Members in {selectedOrganize}</h3>
+            <div className="add-member" style={{ marginBottom: 15 }}>
+              <input
+                type="text"
+                placeholder="ชื่อสมาชิกใหม่"
+                value={newMemberName}
+                onChange={(e) => setNewMemberName(e.target.value)}
+                style={{ padding: "5px 10px", marginRight: 10 }}
+              />
+              <button onClick={handleAddMember} style={{ padding: "5px 15px" }}>เพิ่มสมาชิกใหม่</button>
+            </div>
+
+            {isLoadingMembers ? (
+              <p>Loading...</p>
+            ) : members.length > 0 ? (
+              <table className="members-table" style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr style={{ backgroundColor: "#e0e0e0" }}>
+                    <th style={{ padding: 10, border: "1px solid #ccc" }}>Person Name</th>
+                    <th style={{ padding: 10, border: "1px solid #ccc" }}>จำนวนภาพ</th>
+                    <th style={{ padding: 10, border: "1px solid #ccc" }}>จำนวน Vector</th>
+                    <th style={{ padding: 10, border: "1px solid #ccc" }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {members.map((member) => (
+                    <tr key={member.person_name}>
+                      <td style={{ padding: 10, border: "1px solid #ccc" }}>{member.person_name}</td>
+                      <td style={{ padding: 10, border: "1px solid #ccc", textAlign: "center" }}>{member.image_count}</td>
+                      <td style={{ padding: 10, border: "1px solid #ccc", textAlign: "center" }}>{member.vector_count}</td>
+                      <td style={{ padding: 10, border: "1px solid #ccc" }}>
+                        <button 
+                          onClick={() => handleEditMember(member)}
+                          style={{ backgroundColor: '#ffa500', color: 'white', padding: '5px 10px', border: 'none', cursor: 'pointer', borderRadius: '3px', marginRight: 5 }}
+                        >
+                          แก้ไข
+                        </button>
+                        <button 
+                          onClick={() => openImageModal(member)}
+                          style={{ backgroundColor: '#007bff', color: 'white', padding: '5px 10px', border: 'none', cursor: 'pointer', borderRadius: '3px', marginRight: 5 }}
+                        >
+                          {member.image_count > 0 ? 'แก้ไขรูปภาพ' : 'เพิ่มรูปภาพ'}
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteMember(member)}
+                          style={{ backgroundColor: '#dc3545', color: 'white', padding: '5px 10px', border: 'none', cursor: 'pointer', borderRadius: '3px' }}
+                        >
+                          ลบ
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p>ไม่พบสมาชิกใน organize นี้</p>
+            )}
+
+            {members.length > 0 && (
+              <button 
+                onClick={handleRebuildVectors} 
+                disabled={isRebuilding}
+                style={{ 
+                  marginTop: 15, 
+                  padding: "10px 20px", 
+                  backgroundColor: isRebuilding ? "#ccc" : "#28a745", 
+                  color: "white", 
+                  border: "none", 
+                  borderRadius: 5, 
+                  cursor: isRebuilding ? "not-allowed" : "pointer" 
+                }}
+              >
+                {isRebuilding ? 'กำลังบีบอัด...' : 'บีบอัด Vector'}
+              </button>
+            )}
+          </>
         )}
-        <p>FPS: {fps}</p>
       </div>
 
-      {/* YOLO cropped + keypoints */}
-      <div>
-        <h3>YOLO Cropped + Keypoints</h3>
-        <canvas
-          ref={cropCanvasRef}
-          style={{ border: "1px solid #ccc", position: "relative", pointerEvents: "auto" }}
-        />
-      </div>
+      {/* Image Management Modal */}
+      {showModal && currentMember && (
+        <div 
+          className="modal-overlay" 
+          onClick={closeModal}
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(0,0,0,0.5)",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            zIndex: 1000
+          }}
+        >
+          <div 
+            className="modal-content" 
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              backgroundColor: "white",
+              padding: 30,
+              borderRadius: 10,
+              maxWidth: 600,
+              maxHeight: "80vh",
+              overflow: "auto",
+              position: "relative"
+            }}
+          >
+            <span 
+              className="close" 
+              onClick={closeModal}
+              style={{
+                position: "absolute",
+                top: 10,
+                right: 15,
+                fontSize: 24,
+                cursor: "pointer"
+              }}
+            >
+              &times;
+            </span>
+            <h2>จัดการรูปภาพของ {currentMember.person_name}</h2>
+            <p>Organize: {selectedOrganize}</p>
 
-      {/* Aligned face image */}
-      <div>
-        <h3>Aligned Face</h3>
-        <canvas
-          ref={alignCanvasRef}
-          style={{ border: "1px solid #ccc", position: "relative", pointerEvents: "auto" }}
-        />
-      </div>
+            <div className="upload-section" style={{ marginTop: 20 }}>
+              <h3>เพิ่มรูปภาพ</h3>
+              
+              <div className="upload-options" style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+                <div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFileSelect}
+                    disabled={isUploading || isCameraOn}
+                  />
+                  {selectedFile && <span style={{ marginLeft: 10 }}>✓ {selectedFile.name}</span>}
+                </div>
+
+                <div className="camera-section">
+                  {!isCameraOn ? (
+                    <button onClick={startModalCamera} disabled={isUploading || selectedFile}>
+                      📷 เปิดกล้อง
+                    </button>
+                  ) : (
+                    <>
+                      <button onClick={stopModalCamera}>ปิดกล้อง</button>
+                      <video
+                        ref={videoModalRef}
+                        autoPlay
+                        playsInline
+                        style={{ width: '100%', maxWidth: '400px', marginTop: '10px', display: "block" }}
+                      />
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <button
+                onClick={handleUploadImage}
+                disabled={isUploading || (!selectedFile && !isCameraOn)}
+                style={{
+                  marginTop: 15,
+                  padding: "10px 20px",
+                  backgroundColor: (isUploading || (!selectedFile && !isCameraOn)) ? "#ccc" : "#007bff",
+                  color: "white",
+                  border: "none",
+                  borderRadius: 5,
+                  cursor: (isUploading || (!selectedFile && !isCameraOn)) ? "not-allowed" : "pointer"
+                }}
+              >
+                {isUploading ? 'กำลังอัปโหลด...' : 'อัปโหลด'}
+              </button>
+            </div>
+
+            <div className="images-section" style={{ marginTop: 20 }}>
+              <h3>รูปภาพทั้งหมด ({memberImages.length})</h3>
+              {memberImages.length > 0 ? (
+                <div className="image-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 10 }}>
+                  {memberImages.map((imgName) => (
+                    <div key={imgName} className="image-item" style={{ position: "relative" }}>
+                      <img
+                        src={`${SERVER_URL}/organize/${selectedOrganize}/member/${currentMember.person_name}/image/${imgName}`}
+                        alt={imgName}
+                        style={{ width: "100%", height: 100, objectFit: "cover", borderRadius: 5 }}
+                      />
+                      <button
+                        onClick={() => handleDeleteImage(imgName)}
+                        style={{
+                          position: "absolute",
+                          top: 5,
+                          right: 5,
+                          backgroundColor: "#dc3545",
+                          color: "white",
+                          border: "none",
+                          borderRadius: 3,
+                          padding: "2px 5px",
+                          cursor: "pointer",
+                          fontSize: 12
+                        }}
+                      >
+                        🗑️ ลบ
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p>ยังไม่มีรูปภาพ</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

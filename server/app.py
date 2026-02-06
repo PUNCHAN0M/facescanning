@@ -5,13 +5,14 @@ from fastapi.middleware.cors import CORSMiddleware
 import cv2
 import numpy as np
 import uvicorn
-from arcface import ArcFaceEmbedder
+from arcfacecustom import ArcFaceCustomEmbedder  # ใช้ custom embedder แทน
 from vector_data import VectorDatabaseManager
 from structure_data import FaceDataManager
 from detection_tracker import DetectionTracker
 from pathlib import Path
 import os
 from typing import Optional
+from pydantic import BaseModel
 
 app = FastAPI()
 
@@ -32,8 +33,8 @@ app.add_middleware(
 )
 
 # === Load models once at startup ===
-print("Loading ArcFace model...")
-embedder = ArcFaceEmbedder(ctx_id=0)
+print("Loading ArcFaceCustom model (same preprocessing as client)...")
+embedder = ArcFaceCustomEmbedder()  # ใช้ custom embedder ที่ใช้ขั้นตอนเดียวกับ client
 
 # Cache vector databases for all organizes
 print("Pre-loading vector databases...")
@@ -47,6 +48,68 @@ for org in data_manager.list_organizes():
         print(f"  ✗ Failed to load {org}: {e}")
 
 print(f"✅ Ready to accept requests ({len(vector_db_cache)} organize(s) loaded)")
+
+
+class VectorSearchRequest(BaseModel):
+    embedding: list[float]
+    k: int = 1
+
+
+@app.post("/organize/{organize_name}/search_vector")
+async def search_vector(organize_name: str, req: VectorSearchRequest):
+    """Search FAISS by a client-provided embedding vector (512-d)."""
+    t_start = time.perf_counter()
+    try:
+        t_parse = time.perf_counter()
+        emb = np.asarray(req.embedding, dtype=np.float32)
+        if emb.ndim != 1:
+            raise HTTPException(status_code=400, detail="embedding must be a 1D array")
+        if emb.shape[0] != 512:
+            raise HTTPException(status_code=400, detail=f"embedding dim must be 512, got {emb.shape[0]}")
+        t_parse_done = time.perf_counter()
+
+        # Load vector DB for selected organize (use cache)
+        t_load = time.perf_counter()
+        if organize_name not in vector_db_cache:
+            try:
+                vector_db_cache[organize_name] = VectorDatabaseManager(organize_name)
+            except FileNotFoundError:
+                raise HTTPException(status_code=404, detail=f"Vector database not found for organize '{organize_name}'")
+
+        vector_db = vector_db_cache[organize_name]
+        t_load_done = time.perf_counter()
+
+        # Search FAISS
+        t_search = time.perf_counter()
+        k = max(1, int(req.k or 1))
+        results = vector_db.search(emb, k=k)
+        t_search_done = time.perf_counter()
+
+        t_total = time.perf_counter() - t_start
+        print(f"[TIMING] search_vector: total={t_total*1000:.2f}ms | parse={( t_parse_done-t_parse)*1000:.2f}ms | load={( t_load_done-t_load)*1000:.2f}ms | faiss={( t_search_done-t_search)*1000:.2f}ms")
+
+        if not results:
+            return {
+                "status": "unknown",
+                "person": None,
+                "similarity": None,
+                "organize": organize_name,
+                "timing_ms": round(t_total * 1000, 2),
+            }
+
+        person_name, similarity = results[0]
+        return {
+            "status": "success",
+            "person": person_name,
+            "similarity": round(float(similarity), 6),
+            "organize": organize_name,
+            "timing_ms": round(t_total * 1000, 2),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] search_vector: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.post("/upload")

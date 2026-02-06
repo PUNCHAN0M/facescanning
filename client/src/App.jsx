@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
 import Home from './pages/Home';
-import Scan from './pages/Scan';
+import Scan from './pages/ScanRefactored';
 import './App.css';
 
 function App() {

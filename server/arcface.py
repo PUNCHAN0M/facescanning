@@ -6,7 +6,7 @@ import numpy as np
 import cv2
 
 class ArcFaceEmbedder:
-    def __init__(self, model_name="buffalo_l", ctx_id=0):
+    def __init__(self, model_name="buffalo_s", ctx_id=0):
         print("Loading ArcFace model...")
         self.app = FaceAnalysis(
             name=model_name,

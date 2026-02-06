@@ -3,9 +3,19 @@ from pathlib import Path
 import cv2
 import numpy as np
 import faiss
-from typing import List, Optional, Dict, Tuple
+from typing import List, Optional, Dict, Tuple, Union
 from collections import Counter
-from arcface import ArcFaceEmbedder
+
+# Support both embedders
+try:
+    from arcfacecustom import ArcFaceCustomEmbedder
+except ImportError:
+    ArcFaceCustomEmbedder = None
+
+try:
+    from arcface import ArcFaceEmbedder
+except ImportError:
+    ArcFaceEmbedder = None
 
 ROOT_DATA = Path("data")
 EMBEDDING_DIM = 512
@@ -113,11 +123,15 @@ class VectorDatabaseManager:
         self.meta = []
         self._save()
 
-    def embedding_organize(self, embedder: ArcFaceEmbedder, reset: bool = True):
+    def embedding_organize(self, embedder: Union['ArcFaceEmbedder', 'ArcFaceCustomEmbedder'], reset: bool = True):
+        """
+        Embed ทุกรูปภาพใน organize ด้วย embedder ที่ระบุ
+        รองรับทั้ง ArcFaceEmbedder และ ArcFaceCustomEmbedder
+        """
         if reset:
             self.reset_vectordb()
 
-        image_exts = {".png", ".jpg", ".jpeg", ".bmp", ".tiff"}
+        image_exts = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".avif", ".webp"}
 
         for person_dir in self.faces_dir.iterdir():
             if not person_dir.is_dir():
@@ -135,9 +149,10 @@ class VectorDatabaseManager:
                     print(f"[WARN] Cannot read {img_path}")
                     continue
 
-                embedding = embedder.get_embedding(img)
+                # รองรับทั้งสอง embedder
+                embedding = embedder.get_embedding(img, skip_detection=True)
                 if embedding is None:
-                    print(f"[WARN] No face detected: {img_path}")
+                    print(f"[WARN] Cannot extract embedding: {img_path}")
                     continue
                 
                 # Normalize embedding สำหรับ cosine similarity
@@ -153,6 +168,7 @@ class VectorDatabaseManager:
     
     def matchUser():
         pass
+
 # ================= CLI =================
 
 if __name__ == "__main__":
@@ -164,6 +180,7 @@ if __name__ == "__main__":
     parser.add_argument("--list", action="store_true", help="List all persons")
     parser.add_argument("--count", action="store_true", help="Count total unique persons")
     parser.add_argument("--count-vectors", action="store_true", help="Count vectors per person")
+    parser.add_argument("--use-custom", action="store_true", help="Use ArcFaceCustomEmbedder (same as client)")
 
     args = parser.parse_args()
 
@@ -174,7 +191,13 @@ if __name__ == "__main__":
         exit(1)
 
     if args.embed:
-        embedder = ArcFaceEmbedder(ctx_id=0)
+        if args.use_custom or ArcFaceCustomEmbedder is not None:
+            print("[INFO] Using ArcFaceCustomEmbedder (same preprocessing as client)")
+            from arcfacecustom import ArcFaceCustomEmbedder
+            embedder = ArcFaceCustomEmbedder()
+        else:
+            print("[INFO] Using ArcFaceEmbedder (InsightFace)")
+            embedder = ArcFaceEmbedder(ctx_id=0)
         manager.embedding_organize(embedder)
     elif args.list:
         for p in manager.get_person():
