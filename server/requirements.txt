@@ -4,3 +4,6 @@ python-multipart==0.0.6
 opencv-python==4.9.0.80
 numpy==1.26.3
 gunicorn==21.2.0
+onnxruntime
+Pillow
+faiss-cpu
