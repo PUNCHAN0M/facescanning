@@ -63,3 +63,26 @@ server/
     # นับจำนวน vector ต่อ person
     python vector_data.py pupa --count-vectors
 ```
+
+server/
+storage/
+│   ├── bussinessId1/
+│   │   ├── people/
+│   │   │   ├── personId1/
+│   │   │   │   ├── image1.png
+│   │   │   │   ├── image2.jpg
+│   │   │   │   └── image3.jpeg
+│   │   │   ├── personId2/
+│   │   │   └── personId3/
+│   │   └── vector/
+│   │      ├── index.faiss
+│   │      └── meta.npy
+│   │
+│   └── bussinessId2/
+│       ├── people/
+│       │   ├── personId3/
+│       │   │   ├── img01.png
+│       │   │   └── selfie.jpg
+│       │   ├── personId4/
+│       │   └── personId5/
+│       └── vector/

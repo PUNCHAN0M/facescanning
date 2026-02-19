@@ -86,18 +86,18 @@ class VectorDatabaseManager:
     def search(self, query_vector: np.ndarray, k: int = 5) -> List[Tuple[str, float]]:
         """
         ค้นหาบุคคลที่ใกล้เคียงที่สุดจาก query vector
-        
+
         Args:
             query_vector: numpy array ขนาด (512,) หรือ (1, 512)
             k: จำนวนผลลัพธ์ที่ต้องการ
-        
+
         Returns:
             List ของ tuple (person_name, similarity_score) เรียงจากมากไปน้อย
         """
         if query_vector.ndim == 1:
             query_vector = query_vector.reshape(1, -1)
         query_vector = query_vector.astype(np.float32)
-        
+
         # Normalize สำหรับ cosine similarity
         norm = np.linalg.norm(query_vector)
         if norm > 0:
@@ -123,7 +123,11 @@ class VectorDatabaseManager:
         self.meta = []
         self._save()
 
-    def embedding_organize(self, embedder: Union['ArcFaceEmbedder', 'ArcFaceCustomEmbedder'], reset: bool = True):
+    def embedding_organize(
+        self,
+        embedder: Union["ArcFaceEmbedder", "ArcFaceCustomEmbedder"],
+        reset: bool = True,
+    ):
         """
         Embed ทุกรูปภาพใน organize ด้วย embedder ที่ระบุ
         รองรับทั้ง ArcFaceEmbedder และ ArcFaceCustomEmbedder
@@ -154,7 +158,7 @@ class VectorDatabaseManager:
                 if embedding is None:
                     print(f"[WARN] Cannot extract embedding: {img_path}")
                     continue
-                
+
                 # Normalize embedding สำหรับ cosine similarity
                 norm = np.linalg.norm(embedding)
                 if norm > 0:
@@ -165,9 +169,10 @@ class VectorDatabaseManager:
 
         self._save()
         print("[OK] Re-embedding completed")
-    
+
     def matchUser():
         pass
+
 
 # ================= CLI =================
 
@@ -178,9 +183,17 @@ if __name__ == "__main__":
     parser.add_argument("organize", help="Organize name")
     parser.add_argument("--embed", action="store_true", help="Re-embed entire organize")
     parser.add_argument("--list", action="store_true", help="List all persons")
-    parser.add_argument("--count", action="store_true", help="Count total unique persons")
-    parser.add_argument("--count-vectors", action="store_true", help="Count vectors per person")
-    parser.add_argument("--use-custom", action="store_true", help="Use ArcFaceCustomEmbedder (same as client)")
+    parser.add_argument(
+        "--count", action="store_true", help="Count total unique persons"
+    )
+    parser.add_argument(
+        "--count-vectors", action="store_true", help="Count vectors per person"
+    )
+    parser.add_argument(
+        "--use-custom",
+        action="store_true",
+        help="Use ArcFaceCustomEmbedder (same as client)",
+    )
 
     args = parser.parse_args()
 
@@ -194,6 +207,7 @@ if __name__ == "__main__":
         if args.use_custom or ArcFaceCustomEmbedder is not None:
             print("[INFO] Using ArcFaceCustomEmbedder (same preprocessing as client)")
             from arcfacecustom import ArcFaceCustomEmbedder
+
             embedder = ArcFaceCustomEmbedder()
         else:
             print("[INFO] Using ArcFaceEmbedder (InsightFace)")

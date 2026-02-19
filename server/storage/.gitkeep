@@ -1,0 +1,15 @@
+# This file ensures the storage directory is tracked by Git
+# Actual files will be stored here following the structure:
+# storage/
+#   ├── {businessId}/
+#   │   ├── people/
+#   │   │   ├── {personId}/
+#   │   │   │   ├── image1.png
+#   │   │   │   └── image2.jpg
+#   │   ├── logs/
+#   │   │   ├── {cameraId}/
+#   │   │   │   ├── {personId}/
+#   │   │   │   │   └── 2026-02-12T08-30-45-123Z.jpg
+#   │   └── vector/
+#   │       ├── index.faiss
+#   │       └── meta.npy
