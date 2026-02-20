@@ -324,6 +324,7 @@ export class APIService {
         return {
           person: data.person || null,
           similarity: typeof data.similarity === "number" ? data.similarity : null,
+          confidence: typeof data.confidence === "number" ? data.confidence : null,
           status: "success"
         };
       }
@@ -331,6 +332,7 @@ export class APIService {
       return {
         person: null,
         similarity: null,
+        confidence: null,
         status: "no_match"
       };
     } finally {

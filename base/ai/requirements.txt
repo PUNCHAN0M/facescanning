@@ -7,3 +7,4 @@ gunicorn==21.2.0
 onnxruntime
 Pillow
 faiss-cpu
+faiss-gpu

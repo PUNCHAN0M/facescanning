@@ -14,8 +14,66 @@ import {
   getFaceAlignmentService,
   getEmbeddingService,
   getAPIService,
-  FaceDetectionConfig
+  FaceDetectionConfig,
+  MathUtils
 } from "../lib";
+
+/* ================= DETECTION TRACKER (Client-side) ================= */
+
+/**
+ * Tracks detection history and confirms when the same person
+ * appears >= threshold times within the last windowSize frames.
+ *
+ * Used for the 50-80% confidence tier.
+ */
+class DetectionTracker {
+  constructor(windowSize = 10, confirmThreshold = 5) {
+    this.windowSize = windowSize;
+    this.confirmThreshold = confirmThreshold;
+    this.history = [];
+  }
+
+  addDetection(personName) {
+    this.history.push(personName);
+    if (this.history.length > this.windowSize) {
+      this.history.shift();
+    }
+  }
+
+  getConfirmedPerson() {
+    if (this.history.length === 0) return null;
+
+    const counts = {};
+    for (const name of this.history) {
+      if (name == null) continue;
+      counts[name] = (counts[name] || 0) + 1;
+    }
+
+    let bestPerson = null;
+    let bestCount = 0;
+    for (const [person, count] of Object.entries(counts)) {
+      if (count > bestCount) {
+        bestPerson = person;
+        bestCount = count;
+      }
+    }
+
+    if (bestCount >= this.confirmThreshold) {
+      this.reset();
+      return bestPerson;
+    }
+
+    if (this.history.length >= this.windowSize) {
+      this.reset();
+    }
+
+    return null;
+  }
+
+  reset() {
+    this.history = [];
+  }
+}
 
 /* ================= CUSTOM HOOKS ================= */
 
@@ -140,7 +198,11 @@ export default function Scan() {
   const [fps, setFps] = useState(0);
   const [embeddingDims, setEmbeddingDims] = useState(null);
   const [matchPerson, setMatchPerson] = useState("-");
-  const [matchSimilarity, setMatchSimilarity] = useState("-");
+  const [matchConfidence, setMatchConfidence] = useState("-");
+  const [confirmedPerson, setConfirmedPerson] = useState("-");
+
+  // Detection tracker for 50-80% confidence tier
+  const detectionTrackerRef = useRef(new DetectionTracker(10, 5));
 
   // Timing state
   const [timingInfo, setTimingInfo] = useState({
@@ -218,20 +280,20 @@ export default function Scan() {
     try {
       // YOLO Detection
       const tDetectStart = performance.now();
-      let detections = await detectionService.detectYOLO(video);
-      detections = detectionService.applyNMS(detections)
-        .sort((a, b) => b.conf * detectionService.config.boxArea?.(b.bbox) - 
-                        a.conf * detectionService.config.boxArea?.(a.bbox))
+      let detections = await detectionService.detectFacesWithYOLO(video);
+      detections = detectionService.applyNonMaximumSuppression(detections)
+        .sort((a, b) => b.conf * MathUtils.calculateBoundingBoxArea(b.bbox) - 
+                        a.conf * MathUtils.calculateBoundingBoxArea(a.bbox))
         .slice(0, 1);
       tDetection = performance.now() - tDetectStart;
 
       for (const det of detections) {
         // Crop and detect landmarks
         const tCropStart = performance.now();
-        const crop = detectionService.cropRegion(video, det.bbox, 0);
-        const faces = await detectionService.detectSCRFDLandmarks(crop.canvas);
-        const bestFace = detectionService.pickBestFace(
-          detectionService.applyNMS(faces)
+        const crop = detectionService.cropRegionFromVideo(video, det.bbox, 0);
+        const faces = await detectionService.detectLandmarksWithSCRFD(crop.canvas);
+        const bestFace = detectionService.selectBestFace(
+          detectionService.applyNonMaximumSuppression(faces)
         );
         tCrop = performance.now() - tCropStart;
 
@@ -240,12 +302,12 @@ export default function Scan() {
         // Draw crop with landmarks
         const tAlignStart = performance.now();
         if (cropCanvasRef.current) {
-          alignmentService.drawCroppedFace(crop, bestFace, cropCanvasRef.current);
+          alignmentService.drawCroppedFaceWithLandmarks(crop, bestFace, cropCanvasRef.current);
         }
 
         // Align face
         if (alignCanvasRef.current) {
-          alignmentService.alignFace(crop.canvas, bestFace, alignCanvasRef.current);
+          alignmentService.alignFaceToCanvas(crop.canvas, bestFace, alignCanvasRef.current);
         }
         tAlign = performance.now() - tAlignStart;
 
@@ -269,11 +331,37 @@ export default function Scan() {
             );
             tSearch = performance.now() - tSearchStart;
 
-            if (result) {
-              setMatchPerson(result.person || "unknown");
-              setMatchSimilarity(
-                result.similarity !== null ? result.similarity.toFixed(4) : "-"
-              );
+            if (result && result.status === "success") {
+              const confidence = result.confidence ?? 0;
+              const person = result.person || "unknown";
+
+              setMatchPerson(person);
+              setMatchConfidence(`${confidence.toFixed(1)}%`);
+
+              // 3-tier confidence logic
+              if (confidence > 80) {
+                // Tier 1: High confidence — immediate confirm
+                setConfirmedPerson(person);
+                detectionTrackerRef.current.reset();
+              } else if (confidence >= 50) {
+                // Tier 2: Medium confidence — use tracker (5/10 frames)
+                detectionTrackerRef.current.addDetection(person);
+                const tracked = detectionTrackerRef.current.getConfirmedPerson();
+                if (tracked) {
+                  setConfirmedPerson(tracked);
+                }
+              } else {
+                // Tier 3: Low confidence — unknown
+                detectionTrackerRef.current.addDetection(null);
+                const tracked = detectionTrackerRef.current.getConfirmedPerson();
+                if (!tracked) {
+                  // Don't override current confirmed person yet
+                }
+              }
+            } else {
+              setMatchPerson("-");
+              setMatchConfidence("-");
+              detectionTrackerRef.current.addDetection(null);
             }
           }
         } catch (embError) {
@@ -340,7 +428,9 @@ export default function Scan() {
     cancelAnimationFrame(rafRef.current);
     stopCamera();
     setMatchPerson("-");
-    setMatchSimilarity("-");
+    setMatchConfidence("-");
+    setConfirmedPerson("-");
+    detectionTrackerRef.current.reset();
   };
 
   /* ================= ORGANIZE MANAGEMENT ================= */
@@ -736,9 +826,28 @@ export default function Scan() {
               <span style={{ fontWeight: "bold", color: "#495057" }}>Confidence:</span>
               <span style={{ 
                 fontWeight: "bold", 
-                color: matchSimilarity !== "-" ? "#007bff" : "#6c757d" 
+                color: matchConfidence !== "-"
+                  ? (parseFloat(matchConfidence) > 80 ? "#28a745" : parseFloat(matchConfidence) >= 50 ? "#ffc107" : "#dc3545")
+                  : "#6c757d" 
               }}>
-                {matchSimilarity}
+                {matchConfidence}
+              </span>
+            </div>
+            <div style={{ 
+              display: "flex", 
+              justifyContent: "space-between",
+              padding: "10px 15px",
+              backgroundColor: confirmedPerson !== "-" ? "#d4edda" : "#fff",
+              borderRadius: 4,
+              border: confirmedPerson !== "-" ? "2px solid #28a745" : "1px solid #dee2e6"
+            }}>
+              <span style={{ fontWeight: "bold", color: "#495057" }}>Confirmed Person:</span>
+              <span style={{ 
+                fontWeight: "bold", 
+                color: confirmedPerson !== "-" ? "#155724" : "#6c757d",
+                fontSize: 18
+              }}>
+                {confirmedPerson}
               </span>
             </div>
           </div>
