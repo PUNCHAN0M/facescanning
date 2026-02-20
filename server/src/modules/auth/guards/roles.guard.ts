@@ -3,6 +3,8 @@ import { Role } from '@prisma/client';
 import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 
+import { User } from '../auth.interface';
+
 @Injectable()
 export class RolesGuard implements CanActivate {
   constructor(private reflector: Reflector) {}
@@ -17,9 +19,7 @@ export class RolesGuard implements CanActivate {
       return true;
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-explicit-any
-    const { user } = context.switchToHttp().getRequest<{ user: any }>();
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+    const { user } = context.switchToHttp().getRequest<{ user: User }>();
     return requiredRoles.some((role) => user.role === role);
   }
 }

@@ -1,5 +1,6 @@
-import { defineConfig } from 'prisma/config';
+// eslint-disable-next-line simple-import-sort/imports
 import 'dotenv/config';
+import { defineConfig } from 'prisma/config';
 
 export default defineConfig({
   schema: 'prisma/schema.prisma',

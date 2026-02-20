@@ -26,7 +26,6 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     await this.pool.end();
   }
 
-  // Proxy all PrismaClient methods
   get user() {
     return this.prisma.user;
   }
@@ -51,18 +50,19 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     return this.prisma.detectionLog;
   }
 
-  get $transaction() {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-    return this.prisma.$transaction.bind(this.prisma);
+  get $transaction(): PrismaClient['$transaction'] {
+    return this.prisma.$transaction.bind(
+      this.prisma,
+    ) as PrismaClient['$transaction'];
   }
 
-  get $connect() {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-    return this.prisma.$connect.bind(this.prisma);
+  get $connect(): PrismaClient['$connect'] {
+    return this.prisma.$connect.bind(this.prisma) as PrismaClient['$connect'];
   }
 
-  get $disconnect() {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-    return this.prisma.$disconnect.bind(this.prisma);
+  get $disconnect(): PrismaClient['$disconnect'] {
+    return this.prisma.$disconnect.bind(
+      this.prisma,
+    ) as PrismaClient['$disconnect'];
   }
 }

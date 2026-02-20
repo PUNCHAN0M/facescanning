@@ -11,7 +11,7 @@ import { ConfigService } from '@nestjs/config';
 @Injectable()
 export class RedisService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RedisService.name);
-  private readonly SCAN_SESSION_TTL = 600; // 10 minutes in seconds
+  private readonly SCAN_SESSION_TTL = 600; // ! 10 MINUTES
 
   constructor(
     private configService: ConfigService,
@@ -42,7 +42,6 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     await this.client.quit();
   }
 
-  // Generate session key for scan prevention
   private getScanSessionKey(
     businessId: string,
     cameraId: string,
@@ -51,7 +50,6 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     return `scan:session:${businessId}:${cameraId}:${personId}`;
   }
 
-  // Check if person has scanned recently (within 10 minutes)
   async hasScanSession(
     businessId: string,
     cameraId: string,
@@ -62,7 +60,6 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     return exists === 1;
   }
 
-  // Create scan session (10 minutes TTL)
   async createScanSession(
     businessId: string,
     cameraId: string,
@@ -80,7 +77,6 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     await this.client.setex(key, this.SCAN_SESSION_TTL, value);
   }
 
-  // Get scan session data
   async getScanSession(
     businessId: string,
     cameraId: string,
@@ -91,7 +87,6 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     return data ? (JSON.parse(data) as Record<string, unknown>) : null;
   }
 
-  // Get remaining TTL for scan session
   async getScanSessionTTL(
     businessId: string,
     cameraId: string,
@@ -101,7 +96,6 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     return await this.client.ttl(key);
   }
 
-  // Delete scan session (if needed)
   async deleteScanSession(
     businessId: string,
     cameraId: string,
@@ -111,7 +105,6 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     await this.client.del(key);
   }
 
-  // Generic Redis operations
   async get(key: string): Promise<string | null> {
     return await this.client.get(key);
   }
@@ -133,7 +126,6 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     return result === 1;
   }
 
-  // Get all scan sessions for a business
   async getBusinessScanSessions(
     businessId: string,
   ): Promise<

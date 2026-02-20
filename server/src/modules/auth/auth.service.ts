@@ -25,7 +25,6 @@ export class AuthService {
   async register(registerDto: RegisterDto) {
     const { email, password, firstName, lastName } = registerDto;
 
-    // Check if user exists
     const existingUser = await this.prisma.user.findUnique({
       where: { email },
     });
@@ -34,10 +33,8 @@ export class AuthService {
       throw new ConflictException('User already exists');
     }
 
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create user (first user is SUPER_ADMIN, others need to be created by SUPER_ADMIN)
     const userCount = await this.prisma.user.count();
     const role = userCount === 0 ? Role.SUPER_ADMIN : Role.ADMIN;
 
@@ -71,7 +68,6 @@ export class AuthService {
   async login(loginDto: LoginDto) {
     const { email, password } = loginDto;
 
-    // Find user
     const user = await this.prisma.user.findUnique({
       where: { email },
       include: {
@@ -87,13 +83,10 @@ export class AuthService {
       throw new UnauthorizedException('Account is inactive');
     }
 
-    // Verify password
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
       throw new UnauthorizedException('Invalid credentials');
     }
-
-    // Generate JWT token
     const payload = {
       sub: user.id,
       email: user.email,
@@ -102,9 +95,8 @@ export class AuthService {
     };
 
     const accessToken = this.jwtService.sign(payload);
-
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { password: _, ...userWithoutPassword } = user;
+    const { password: _password, ...userWithoutPassword } = user;
 
     return {
       accessToken,
@@ -116,37 +108,16 @@ export class AuthService {
     const { email, password, firstName, lastName, role, businessId } =
       createUserDto;
 
-    // Check permissions
     if (currentUser.role === Role.SUPER_ADMIN) {
-      // Super admin can create both admins and super admins
-      // If creating admin, must provide businessId
       if (role === Role.ADMIN && !businessId) {
         throw new BadRequestException(
           'Business ID is required when creating an admin',
         );
       }
 
-      // If creating super admin, businessId should not be provided
       if (role === Role.SUPER_ADMIN && businessId) {
         throw new BadRequestException(
           'Super admin cannot be assigned to a business',
-        );
-      }
-    } else if (currentUser.role === Role.ADMIN) {
-      // Admin can only create admins within their own business
-      if (role !== Role.ADMIN) {
-        throw new ForbiddenException('Admin can only create other admins');
-      }
-
-      if (!currentUser.businessId) {
-        throw new ForbiddenException(
-          'You must be assigned to a business to create users',
-        );
-      }
-
-      if (businessId && businessId !== currentUser.businessId) {
-        throw new ForbiddenException(
-          'You can only create users within your own business',
         );
       }
     } else {
@@ -155,7 +126,6 @@ export class AuthService {
       );
     }
 
-    // Check if user exists
     const existingUser = await this.prisma.user.findUnique({
       where: { email },
     });
@@ -164,10 +134,8 @@ export class AuthService {
       throw new ConflictException('User already exists');
     }
 
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create user
     const user = await this.prisma.user.create({
       data: {
         email,

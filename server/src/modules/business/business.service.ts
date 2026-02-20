@@ -15,7 +15,6 @@ export class BusinessService {
   constructor(private prisma: PrismaService) {}
 
   async create(createBusinessDto: CreateBusinessDto, currentUser: User) {
-    // Only SUPER_ADMIN can create businesses
     if (currentUser.role !== Role.SUPER_ADMIN) {
       throw new ForbiddenException('Only super admin can create businesses');
     }
@@ -28,7 +27,6 @@ export class BusinessService {
   }
 
   async findAll(currentUser: User) {
-    // SUPER_ADMIN can see all businesses
     if (currentUser.role === Role.SUPER_ADMIN) {
       return this.prisma.business.findMany({
         include: {
@@ -40,7 +38,6 @@ export class BusinessService {
       });
     }
 
-    // ADMIN can only see their own business
     if (currentUser.businessId) {
       const business = await this.prisma.business.findUnique({
         where: { id: currentUser.businessId },
@@ -78,7 +75,6 @@ export class BusinessService {
       throw new NotFoundException('Business not found');
     }
 
-    // ADMIN can only access their own business
     if (
       currentUser.role === Role.ADMIN &&
       currentUser.businessId !== business.id
@@ -94,7 +90,6 @@ export class BusinessService {
     updateBusinessDto: UpdateBusinessDto,
     currentUser: User,
   ) {
-    // Only SUPER_ADMIN can update businesses
     if (currentUser.role !== Role.SUPER_ADMIN) {
       throw new ForbiddenException('Only super admin can update businesses');
     }
@@ -114,7 +109,6 @@ export class BusinessService {
   }
 
   async remove(id: string, currentUser: User) {
-    // Only SUPER_ADMIN can delete businesses
     if (currentUser.role !== Role.SUPER_ADMIN) {
       throw new ForbiddenException('Only super admin can delete businesses');
     }
@@ -133,14 +127,12 @@ export class BusinessService {
     }
 
     if (business._count.users > 0) {
-      // Soft delete by setting isActive to false
       return this.prisma.business.update({
         where: { id },
         data: { isActive: false },
       });
     }
 
-    // Hard delete if no users
     return this.prisma.business.delete({
       where: { id },
     });
