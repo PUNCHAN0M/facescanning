@@ -3,8 +3,6 @@
   "collection": "@nestjs/schematics",
   "sourceRoot": "src",
   "compilerOptions": {
-    "deleteOutDir": true,
-    "assets": ["fixtures/**/*"]
-  },
-  "include": ["src", "__mocks__"]
+    "deleteOutDir": true
+  }
 }

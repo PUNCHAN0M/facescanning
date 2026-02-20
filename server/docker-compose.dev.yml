@@ -1,36 +1,48 @@
-name: react-nest-template-dev
+name: face-scan-dev
 
 services:
-  # Database
-  db_pg:
-    image: postgres:16-alpine
-    container_name: react-nest-template-pg-dev
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: face-scan-pg-dev
+    restart: always
     environment:
-      POSTGRES_DB: ${DB_NAME:-react-nest-template_db}
-      POSTGRES_USER: ${DB_USERNAME:-react-nest-template}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      TZ: Asia/Bangkok
-      PGTZ: Asia/Bangkok
-    healthcheck:
-      test:
-        [
-          'CMD-SHELL',
-          'pg_isready -U ${DB_USERNAME:-react-nest-template} -d ${DB_NAME:-react-nest-template_db}',
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
+      POSTGRES_DB: ${DB_NAME:-face_scan}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
     ports:
-      - '5433:5432'
+      - '5432:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
-      - react-nest-template-network
+      - app-network
+
+  rustfs:
+    image: rustfs/rustfs:latest
+    container_name: face-scan-rustfs-dev
+    restart: always
+    ports:
+      - '9000:9000'
+    volumes:
+      - rustfs_data:/data
+    networks:
+      - app-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: face-scan-redis-dev
+    restart: always
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    networks:
+      - app-network
 
 networks:
-  react-nest-template-network:
+  app-network:
     driver: bridge
 
 volumes:
   postgres_data:
+  redis_data:
+  rustfs_data:

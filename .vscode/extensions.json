@@ -19,7 +19,6 @@
     // JavaScript / TypeScript / React
     "dbaeumer.vscode-eslint", // ESLint integration
     "steo.json-prettify", // JSON formatter (alternative/backup)
-    "redhat.vscode-yaml", // YAML Language Support
     "bradlc.vscode-tailwindcss", // Tailwind CSS IntelliSense
     "prisma.prisma", // Prisma Language Tools
 

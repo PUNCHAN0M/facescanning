@@ -1,9 +1,9 @@
 {
-  "name": "react-nest-template",
+  "name": "face-scan",
   "private": true,
   "version": "1.0.0",
   "author": "",
-  "description": "React Nest Template",
+  "description": "Face Scan",
   "license": "UNLICENSED",
   "scripts": {
     "format:client": "pnpm --filter client format",
@@ -18,15 +18,17 @@
     "_Production Deployment": "Production Deployment",
     "build": "node scripts/cross/build-prod.js",
     "prod": "node scripts/cross/start-prod.js",
-    "prod:stop": "node scripts/cross/stop-prod.js"
+    "prod:stop": "node scripts/cross/stop-prod.js",
+    "_Docker": "Docker",
+    "docker:reset": "docker system prune -a --volumes"
   },
   "devDependencies": {
     "@commitlint/cli": "^18.6.1",
     "@commitlint/config-conventional": "^18.6.3",
     "husky": "^9.1.7",
     "lint-staged": "^15.5.2",
-    "prettier": "^3.5.3",
-    "prettier-plugin-tailwindcss": "^0.6.11"
+    "prettier": "^3.8.1",
+    "prettier-plugin-tailwindcss": "^0.6.14"
   },
   "commitlint": {
     "extends": [
