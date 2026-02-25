@@ -15,6 +15,8 @@ import {
   getEmbeddingService,
   getAPIService,
   FaceDetectionConfig,
+  EMBEDDING_MODELS,
+  DEFAULT_EMBEDDING_MODEL,
   MathUtils
 } from "../lib";
 
@@ -173,6 +175,31 @@ function useOrganizeManagement() {
   };
 }
 
+/* ================= UTILITIES ================= */
+
+/**
+ * Load a File/Blob into a canvas element.
+ * Returns a canvas with videoWidth/videoHeight properties for pipeline compatibility.
+ */
+function loadImageToCanvas(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      canvas.getContext("2d").drawImage(img, 0, 0);
+      URL.revokeObjectURL(img.src);
+      resolve(canvas);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(img.src);
+      reject(new Error("ไม่สามารถโหลดรูปภาพได้"));
+    };
+    img.src = URL.createObjectURL(file);
+  });
+}
+
 /* ================= MAIN COMPONENT ================= */
 export default function Scan() {
   // Services
@@ -204,6 +231,10 @@ export default function Scan() {
   // Detection tracker for 50-80% confidence tier
   const detectionTrackerRef = useRef(new DetectionTracker(10, 5));
 
+  // Embedding model selection
+  const [selectedModel, setSelectedModel] = useState(DEFAULT_EMBEDDING_MODEL);
+  const [isModelSwitching, setIsModelSwitching] = useState(false);
+
   // Timing state
   const [timingInfo, setTimingInfo] = useState({
     detection: 0,
@@ -227,6 +258,7 @@ export default function Scan() {
 
   // Organize/Member management state
   const [isRebuilding, setIsRebuilding] = useState(false);
+  const [rebuildProgress, setRebuildProgress] = useState(null); // { current, total, person }
   const [newOrganizeName, setNewOrganizeName] = useState("");
   const [newMemberName, setNewMemberName] = useState("");
 
@@ -246,7 +278,7 @@ export default function Scan() {
         await detectionService.initialize({
           onProgress: (msg) => console.log(`[ModelLoad] ${msg}`)
         });
-        await embeddingService.initialize();
+        await embeddingService.initialize({ modelKey: selectedModel });
         setIsModelLoaded(true);
         console.log("[Scan] All models loaded");
       } catch (error) {
@@ -255,6 +287,37 @@ export default function Scan() {
     }
     loadModels();
   }, []);
+
+  /* ================= MODEL SWITCHING ================= */
+  const handleModelSwitch = useCallback(async (newModelKey) => {
+    if (newModelKey === embeddingService.getModelKey()) return;
+    
+    // Stop detection loop while switching
+    const wasRunning = isRunning;
+    if (wasRunning) {
+      cancelAnimationFrame(rafRef.current);
+    }
+
+    setIsModelSwitching(true);
+    setIsModelLoaded(false);
+    setSelectedModel(newModelKey);
+
+    try {
+      await embeddingService.initialize({ modelKey: newModelKey });
+      setIsModelLoaded(true);
+      setEmbeddingDims(null);
+      console.log(`[Scan] Switched to model: ${newModelKey}`);
+      
+      // Resume detection if it was running
+      if (wasRunning) {
+        detectLoop();
+      }
+    } catch (error) {
+      console.error("[Scan] Model switch failed:", error);
+      alert(`โหลดโมเดลไม่สำเร็จ: ${error.message}`);
+    }
+    setIsModelSwitching(false);
+  }, [isRunning]);
 
   /* ================= DETECTION LOOP ================= */
   const detectLoop = useCallback(async () => {
@@ -519,17 +582,30 @@ export default function Scan() {
 
   const handleRebuildVectors = async () => {
     if (!selectedOrganize) return;
-    if (!confirm("ต้องการบีบอัด vector หรือไม่?")) return;
+    const modelLabel = EMBEDDING_MODELS[selectedModel]?.label || selectedModel;
+    if (!confirm(`ต้องการบีบอัด vector ด้วยโมเดล "${modelLabel}" หรือไม่?\n\n⚠️ Client + Server ต้องใช้โมเดลเดียวกัน`)) return;
     
     setIsRebuilding(true);
+    setRebuildProgress(null);
     try {
-      const result = await api.rebuildVectors(selectedOrganize);
+      const result = await api.rebuildVectorsWithProgress(
+        selectedOrganize,
+        selectedModel,
+        (event) => {
+          if (event.type === "start") {
+            setRebuildProgress({ current: 0, total: event.total, person: "เริ่มต้น..." });
+          } else if (event.type === "progress") {
+            setRebuildProgress({ current: event.current, total: event.total, person: event.person });
+          }
+        }
+      );
       await fetchMembers(selectedOrganize);
-      alert(`✅ ${result.message}\nTotal vectors: ${result.total_vectors}`);
+      alert(`✅ ${result.message}\nModel: ${result.model}\nTotal vectors: ${result.total_vectors}\nSkipped: ${result.skipped || 0}`);
     } catch (error) {
       alert(`❌ ${error.message}`);
     }
     setIsRebuilding(false);
+    setRebuildProgress(null);
   };
 
   /* ================= IMAGE MANAGEMENT ================= */
@@ -592,14 +668,70 @@ export default function Scan() {
         file = new File([blob], "captured.jpg", { type: "image/jpeg" });
       }
 
-      await api.uploadMemberImage(selectedOrganize, currentMember.person_name, file);
+      // --- Detection → Align → Embedding pipeline ---
+      let embedding = null;
+      if (isModelLoaded && detectionService.isReady() && embeddingService.isReady()) {
+        try {
+          // Load image into a canvas to use as "video-like" source
+          const imgCanvas = await loadImageToCanvas(file);
+
+          // Create a source object compatible with videoWidth/videoHeight APIs
+          const source = imgCanvas;
+          source.videoWidth = imgCanvas.width;
+          source.videoHeight = imgCanvas.height;
+
+          // YOLO face detection
+          let detections = await detectionService.detectFacesWithYOLO(source);
+          detections = detectionService.applyNonMaximumSuppression(detections)
+            .sort((a, b) =>
+              b.conf * MathUtils.calculateBoundingBoxArea(b.bbox) -
+              a.conf * MathUtils.calculateBoundingBoxArea(a.bbox)
+            )
+            .slice(0, 1);
+
+          if (detections.length > 0) {
+            const det = detections[0];
+            // Crop and SCRFD landmark detection
+            const crop = detectionService.cropRegionFromVideo(source, det.bbox, 0);
+            const faces = await detectionService.detectLandmarksWithSCRFD(crop.canvas);
+            const bestFace = detectionService.selectBestFace(
+              detectionService.applyNonMaximumSuppression(faces)
+            );
+
+            if (bestFace) {
+              // Align face
+              const alignedCanvas = alignmentService.createAlignedFaceCanvas(crop.canvas, bestFace);
+              if (alignedCanvas) {
+                // Extract embedding
+                embedding = await embeddingService.extractEmbedding(alignedCanvas);
+              }
+            }
+          }
+
+          if (!embedding) {
+            console.warn("[Upload] ตรวจจับใบหน้าหรือสร้าง embedding ไม่สำเร็จ จะอัปโหลดเฉพาะรูปภาพ");
+          }
+        } catch (pipelineError) {
+          console.warn("[Upload] Face pipeline error, uploading image only:", pipelineError);
+        }
+      }
+
+      // Upload with vector if available, otherwise just the image
+      if (embedding) {
+        await api.uploadMemberImageWithVector(
+          selectedOrganize, currentMember.person_name, file, embedding
+        );
+      } else {
+        await api.uploadMemberImage(selectedOrganize, currentMember.person_name, file);
+      }
+
       setSelectedFile(null);
       
       const images = await api.getMemberImages(selectedOrganize, currentMember.person_name);
       setMemberImages(images);
       await fetchMembers(selectedOrganize);
       
-      alert("อัปโหลดสำเร็จ");
+      alert(embedding ? "อัปโหลดสำเร็จ (พร้อม vector)" : "อัปโหลดสำเร็จ (เฉพาะรูปภาพ)");
     } catch (error) {
       alert(error.message || "เกิดข้อผิดพลาด");
     }
@@ -623,6 +755,55 @@ export default function Scan() {
   return (
     <div style={{ padding: 20 }}>
       <h1>Face Scanning</h1>
+
+      {/* Model Selector */}
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        padding: "12px 16px",
+        marginBottom: 20,
+        backgroundColor: "#e8f4fd",
+        borderRadius: 8,
+        border: "1px solid #bee5eb",
+        flexWrap: "wrap"
+      }}>
+        <span style={{ fontWeight: "bold", fontSize: 14, color: "#0c5460" }}>
+          🧠 Embedding Model:
+        </span>
+        {Object.values(EMBEDDING_MODELS).map((m) => (
+          <button
+            key={m.key}
+            onClick={() => handleModelSwitch(m.key)}
+            disabled={isModelSwitching}
+            style={{
+              padding: "6px 14px",
+              borderRadius: 6,
+              border: selectedModel === m.key ? "2px solid #007bff" : "1px solid #adb5bd",
+              backgroundColor: selectedModel === m.key ? "#007bff" : "#fff",
+              color: selectedModel === m.key ? "#fff" : "#212529",
+              cursor: isModelSwitching ? "not-allowed" : "pointer",
+              fontWeight: selectedModel === m.key ? "bold" : "normal",
+              fontSize: 13,
+              opacity: isModelSwitching ? 0.6 : 1,
+              transition: "all 0.15s",
+            }}
+            title={`${m.description} (${m.sizeMB} MB)`}
+          >
+            {m.label}
+          </button>
+        ))}
+        {isModelSwitching && (
+          <span style={{ fontSize: 13, color: "#856404" }}>⏳ กำลังเปลี่ยนโมเดล...</span>
+        )}
+        <span style={{ 
+          fontSize: 12, 
+          color: "#6c757d", 
+          marginLeft: "auto" 
+        }}>
+          ⚠️ ต้อง rebuild vectors หลังเปลี่ยนโมเดล
+        </span>
+      </div>
       
       {!isModelLoaded && (
         <div style={{ padding: 20, backgroundColor: "#fff3cd", marginBottom: 20, borderRadius: 8 }}>
@@ -1007,21 +1188,65 @@ export default function Scan() {
             )}
 
             {members.length > 0 && (
-              <button 
-                onClick={handleRebuildVectors} 
-                disabled={isRebuilding}
-                style={{ 
-                  marginTop: 15, 
-                  padding: "10px 20px", 
-                  backgroundColor: isRebuilding ? "#ccc" : "#28a745", 
-                  color: "white", 
-                  border: "none", 
-                  borderRadius: 5, 
-                  cursor: isRebuilding ? "not-allowed" : "pointer" 
-                }}
-              >
-                {isRebuilding ? "กำลังบีบอัด..." : "บีบอัด Vector"}
-              </button>
+              <div style={{ marginTop: 15 }}>
+                <button 
+                  onClick={handleRebuildVectors} 
+                  disabled={isRebuilding}
+                  style={{ 
+                    padding: "10px 20px", 
+                    backgroundColor: isRebuilding ? "#ccc" : "#28a745", 
+                    color: "white", 
+                    border: "none", 
+                    borderRadius: 5, 
+                    cursor: isRebuilding ? "not-allowed" : "pointer" 
+                  }}
+                >
+                  {isRebuilding ? "กำลังบีบอัด..." : "บีบอัด Vector"}
+                </button>
+
+                {/* Progress Bar */}
+                {isRebuilding && rebuildProgress && rebuildProgress.total > 0 && (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      fontSize: 13,
+                      marginBottom: 4,
+                      color: "#ccc",
+                    }}>
+                      <span>
+                        {rebuildProgress.person === "กำลังสร้าง index..."
+                          ? "กำลังสร้าง index..."
+                          : `กำลังประมวลผล: ${rebuildProgress.person}`}
+                      </span>
+                      <span>{rebuildProgress.current}/{rebuildProgress.total}</span>
+                    </div>
+                    <div style={{
+                      width: "100%",
+                      height: 20,
+                      backgroundColor: "#333",
+                      borderRadius: 10,
+                      overflow: "hidden",
+                    }}>
+                      <div style={{
+                        width: `${Math.round((rebuildProgress.current / rebuildProgress.total) * 100)}%`,
+                        height: "100%",
+                        backgroundColor: "#28a745",
+                        borderRadius: 10,
+                        transition: "width 0.2s ease",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 12,
+                        color: "white",
+                        fontWeight: "bold",
+                      }}>
+                        {Math.round((rebuildProgress.current / rebuildProgress.total) * 100)}%
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
           </>
         )}

@@ -1,50 +1,98 @@
 /**
  * EmbeddingService - Production-ready face embedding service
  * 
- * Generates face embeddings using MobileFaceNet (w600k_mbf) model.
- * Handles preprocessing and L2 normalization matching server-side implementation.
+ * Supports switching between multiple ArcFace models at runtime:
+ * - w600k_r50  (ResNet-50, 166MB, high accuracy)
+ * - w600k_mbf  (MobileFaceNet, 13MB, fast)
+ * - r100       (ResNet-100, 249MB, highest accuracy)
+ * 
+ * IMPORTANT: Client and server must use the same model for FAISS search
+ * to produce matching embeddings. Switching model requires server rebuild.
  * 
  * @author FaceScanning Team
- * @version 2.0.0
+ * @version 3.0.0
  */
 
 import * as ort from "onnxruntime-web";
-import { FaceDetectionConfig, MathUtils } from "./FaceDetectionService";
+import { FaceDetectionConfig, EMBEDDING_MODELS, DEFAULT_EMBEDDING_MODEL, MathUtils } from "./FaceDetectionService";
 
 /* ================= EMBEDDING SERVICE ================= */
 export class EmbeddingService {
   constructor() {
     this.session = null;
-    this.inputSize = FaceDetectionConfig.MBF.INPUT_SIZE;
-    this.modelPath = FaceDetectionConfig.MBF.MODEL_PATH;
+    this.inputSize = FaceDetectionConfig.ARCFACE_INPUT_SIZE;
     this.isInitialized = false;
     this.embeddingDims = null;
+    this.currentModelKey = null;
   }
 
   /**
-   * Initialize the embedding model
+   * Get current model key
+   * @returns {string|null}
+   */
+  getModelKey() {
+    return this.currentModelKey;
+  }
+
+  /**
+   * Initialize (or switch to) an embedding model
    * 
    * @param {Object} options - Initialization options
+   * @param {string} [options.modelKey] - Key from EMBEDDING_MODELS
+   * @param {string} [options.executionProvider] - ONNX execution provider
    * @returns {Promise<boolean>} Success status
    */
   async initialize(options = {}) {
     const {
+      modelKey = DEFAULT_EMBEDDING_MODEL,
       executionProvider = "wasm",
-      modelPath = this.modelPath
     } = options;
 
+    const modelDef = EMBEDDING_MODELS[modelKey];
+    if (!modelDef) {
+      throw new Error(`Unknown embedding model: "${modelKey}". Available: ${Object.keys(EMBEDDING_MODELS).join(", ")}`);
+    }
+
+    // If already loaded with same model, skip
+    if (this.isInitialized && this.currentModelKey === modelKey) {
+      console.log(`[EmbeddingService] Model "${modelKey}" already loaded, skipping`);
+      return true;
+    }
+
+    // Dispose previous session
+    if (this.session) {
+      console.log(`[EmbeddingService] Disposing previous model "${this.currentModelKey}"...`);
+      this.dispose();
+    }
+
     try {
-      this.session = await ort.InferenceSession.create(modelPath, {
-        executionProviders: [executionProvider]
-      });
-      
+      console.log(`[EmbeddingService] Loading model "${modelDef.label}" (${modelDef.sizeMB} MB)...`);
+
+      const sessionOptions = {
+        executionProviders: [executionProvider],
+      };
+
+      // Large models use external data format to bypass protobuf size limit
+      if (modelDef.externalData) {
+        sessionOptions.externalData = [
+          {
+            path: modelDef.externalData.split("/").pop(),
+            data: modelDef.externalData,
+          },
+        ];
+        console.log("[EmbeddingService] Using external data format");
+      }
+
+      this.session = await ort.InferenceSession.create(modelDef.modelPath, sessionOptions);
+      this.currentModelKey = modelKey;
       this.isInitialized = true;
-      console.log("[EmbeddingService] Model loaded successfully");
-      
+      this.embeddingDims = null; // reset, will be set on first extraction
+
+      console.log(`[EmbeddingService] Model "${modelDef.label}" loaded successfully`);
       return true;
     } catch (error) {
-      console.error("[EmbeddingService] Initialization failed:", error);
-      throw new Error(`Embedding model initialization failed: ${error.message}`);
+      console.error(`[EmbeddingService] Failed to load "${modelKey}":`, error);
+      throw new Error(`Embedding model initialization failed (${modelKey}): ${error.message}`);
     }
   }
 
@@ -162,6 +210,7 @@ export class EmbeddingService {
     this.session = null;
     this.isInitialized = false;
     this.embeddingDims = null;
+    this.currentModelKey = null;
   }
 }
 

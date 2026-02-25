@@ -21,10 +21,7 @@ export const FaceDetectionConfig = Object.freeze({
     CONFIDENCE_THRESHOLD: 0.5,
     MODEL_PATH: "/yolov12n-face.onnx",
   },
-  MBF: {
-    INPUT_SIZE: 112,
-    MODEL_PATH: "/w600k_mbf.onnx",
-  },
+  ARCFACE_INPUT_SIZE: 112,
   ARCFACE_REFERENCE_LANDMARKS_112: Object.freeze([
     [38.2946, 51.6963],
     [73.5318, 51.5014],
@@ -33,6 +30,41 @@ export const FaceDetectionConfig = Object.freeze({
     [70.7299, 92.2041],
   ]),
 });
+
+/**
+ * Available embedding models.
+ * Each model produces 512-d embeddings but from different architectures.
+ * Client and server MUST use the same model for vectors to match.
+ */
+export const EMBEDDING_MODELS = Object.freeze({
+   r100: {
+    key: "r100",
+    label: "R100 (ResNet-100)",
+    modelPath: "/r100.onnx",
+    externalData: "/r100.onnx_data",
+    sizeMB: 249,
+    description: "Highest accuracy, slowest",
+  },
+  w600k_r50: {
+    key: "w600k_r50",
+    label: "W600K R50 (ResNet-50)",
+    modelPath: "/w600k_r50.onnx",
+    externalData: "/w600k_r50.onnx_data",
+    sizeMB: 166,
+    description: "High accuracy, slower",
+  },
+  w600k_mbf: {
+    key: "w600k_mbf",
+    label: "W600K MBF (MobileFaceNet)",
+    modelPath: "/w600k_mbf.onnx",
+    externalData: null,
+    sizeMB: 13,
+    description: "Fast, lightweight",
+  },
+ 
+});
+
+export const DEFAULT_EMBEDDING_MODEL = "w600k_r50";
 
 /* ================= MATH UTILITIES ================= */
 export class MathUtils {

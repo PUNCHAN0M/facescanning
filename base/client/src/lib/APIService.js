@@ -253,6 +253,37 @@ export class APIService {
   }
 
   /**
+   * Upload member image together with a pre-computed face embedding vector.
+   * The server stores the image in faces/{member}/ and the vector in face-vector/{member}/.
+   * 
+   * @param {string} organizeName - Organization name
+   * @param {string} personName - Member/person name
+   * @param {File|Blob} file - Face image file
+   * @param {Float32Array|number[]} embedding - 512-d face embedding vector
+   * @returns {Promise<object>} Upload result with image_path and vector_path
+   */
+  async uploadMemberImageWithVector(organizeName, personName, file, embedding) {
+    if (!organizeName || !personName || !file) {
+      throw new Error("Organization, person name, and file are required");
+    }
+    if (!embedding || (embedding.length !== 512)) {
+      throw new Error("A valid 512-d embedding vector is required");
+    }
+
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append(
+      "vector",
+      JSON.stringify(Array.isArray(embedding) ? embedding : Array.from(embedding))
+    );
+
+    return await this.request(
+      `/organize/${encodeURIComponent(organizeName)}/member/${encodeURIComponent(personName)}/upload-with-vector`,
+      { method: "POST", body: formData }
+    );
+  }
+
+  /**
    * Delete member image
    */
   async deleteMemberImage(organizeName, personName, filename) {
@@ -276,15 +307,98 @@ export class APIService {
 
   /**
    * Rebuild vectors for organize
+   * @param {string} organizeName
+   * @param {string} [modelKey] - Embedding model key (e.g. "w600k_r50", "w600k_mbf", "r100")
    */
-  async rebuildVectors(organizeName) {
+  async rebuildVectors(organizeName, modelKey) {
+    if (!organizeName) {
+      throw new Error("Organization name is required");
+    }
+    const params = modelKey ? `?model=${encodeURIComponent(modelKey)}` : "";
+    return await this.request(
+      `/organize/${encodeURIComponent(organizeName)}/rebuild${params}`,
+      { method: "POST", timeout: 300000 } // Extended timeout for large model rebuild
+    );
+  }
+
+  /**
+   * Rebuild FAISS index from pre-computed face-vectors (uploaded via uploadMemberImageWithVector).
+   * No model inference needed on the server side.
+   * @param {string} organizeName
+   * @returns {Promise<object>} Rebuild result with total_vectors
+   */
+  async rebuildFromFaceVectors(organizeName) {
     if (!organizeName) {
       throw new Error("Organization name is required");
     }
     return await this.request(
-      `/organize/${encodeURIComponent(organizeName)}/rebuild`,
-      { method: "POST", timeout: 120000 } // Extended timeout for vector rebuild
+      `/organize/${encodeURIComponent(organizeName)}/rebuild?source=face-vector`,
+      { method: "POST", timeout: 300000 }
     );
+  }
+
+  /**
+   * Rebuild vectors with SSE progress streaming.
+   * @param {string} organizeName
+   * @param {string} [modelKey]
+   * @param {function} onProgress - callback({type, current, total, person, ...})
+   * @returns {Promise<object>} Final "done" event data
+   */
+  async rebuildVectorsWithProgress(organizeName, modelKey, onProgress) {
+    if (!organizeName) {
+      throw new Error("Organization name is required");
+    }
+
+    const params = new URLSearchParams({ stream: "true" });
+    if (modelKey) params.set("model", modelKey);
+
+    const url = `${this.baseUrl}/organize/${encodeURIComponent(organizeName)}/rebuild?${params}`;
+
+    const response = await fetch(url, { method: "POST" });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      throw new APIError(
+        errorData?.detail || `HTTP ${response.status}: ${response.statusText}`,
+        response.status,
+        errorData
+      );
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let finalResult = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      // Parse SSE events from buffer
+      const lines = buffer.split("\n");
+      buffer = lines.pop(); // keep incomplete line in buffer
+
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        try {
+          const event = JSON.parse(line.slice(6));
+          if (event.type === "error") {
+            throw new APIError(event.message, 500);
+          }
+          if (onProgress) onProgress(event);
+          if (event.type === "done") {
+            finalResult = event;
+          }
+        } catch (e) {
+          if (e instanceof APIError) throw e;
+          console.warn("[API] SSE parse error:", e);
+        }
+      }
+    }
+
+    return finalResult || { type: "done", total_vectors: 0, message: "Rebuild complete" };
   }
 
   /**

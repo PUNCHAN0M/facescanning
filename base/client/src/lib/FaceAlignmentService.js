@@ -9,7 +9,7 @@ import { FaceDetectionConfig, MathUtils } from "./FaceDetectionService";
 
 export class FaceAlignmentService {
   constructor() {
-    this.outputSize = FaceDetectionConfig.MBF.INPUT_SIZE;
+    this.outputSize = FaceDetectionConfig.ARCFACE_INPUT_SIZE;
     this.referencePoints = FaceDetectionConfig.ARCFACE_REFERENCE_LANDMARKS_112;
   }
 

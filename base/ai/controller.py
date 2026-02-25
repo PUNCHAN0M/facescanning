@@ -7,11 +7,12 @@ Routers:
 - recognition_router : embedding search + image recognition
 """
 
+import json
 from pathlib import Path
 from typing import List
 
-from fastapi import APIRouter, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from repository import OrganizeRepository
@@ -89,13 +90,51 @@ async def delete_organize(organize_name: str):
 
 
 @organize_router.post("/{organize_name}/rebuild")
-async def rebuild_organize_vectors(organize_name: str):
-    """Rebuild vector database for an organize."""
+async def rebuild_organize_vectors(
+    organize_name: str,
+    model: str = Query(None, description="Embedding model key (w600k_r50, w600k_mbf, r100)"),
+    stream: bool = Query(False, description="Stream progress via SSE"),
+    source: str = Query(None, description="'face-vector' to rebuild from pre-computed vectors"),
+):
+    """Rebuild vector database for an organize using specified model or pre-computed face-vectors."""
+    if source == "face-vector":
+        try:
+            result = _organize_service.rebuild_from_face_vectors(organize_name)
+            return result
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail=str(error))
+    if stream:
+        return _rebuild_stream_response(organize_name, model)
     try:
-        result = _organize_service.rebuild_vectors(organize_name)
+        result = _organize_service.rebuild_vectors(organize_name, model_key=model)
         return result
     except FileNotFoundError as error:
         raise HTTPException(status_code=404, detail=str(error))
+
+
+def _rebuild_stream_response(organize_name: str, model_key: str | None):
+    """Return a StreamingResponse that sends SSE progress events."""
+
+    def event_generator():
+        try:
+            for event in _organize_service.rebuild_vectors_stream(
+                organize_name, model_key=model_key
+            ):
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        except FileNotFoundError as error:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(error)})}\n\n"
+        except Exception as error:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(error)})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # ═══════════════════════════════════════════════════════
@@ -172,6 +211,41 @@ async def upload_member_image(
             organize_name, person_name, file.filename, data
         )
         return {"message": "Successfully uploaded image"}
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error))
+
+
+@member_router.post("/{person_name}/upload-with-vector")
+async def upload_member_image_with_vector(
+    organize_name: str,
+    person_name: str,
+    file: UploadFile = File(..., description="Face image file"),
+    vector: str = Form(..., description="JSON array of 512 float values (face embedding)"),
+):
+    """Upload a face image together with its pre-computed embedding vector."""
+    import numpy as np
+
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Empty image file")
+
+    # Parse vector from JSON string
+    try:
+        vector_list = json.loads(vector)
+        if not isinstance(vector_list, list) or len(vector_list) != 512:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Vector must be a JSON array of 512 floats, got {len(vector_list) if isinstance(vector_list, list) else type(vector_list).__name__}",
+            )
+        face_vector = np.array(vector_list, dtype=np.float32)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON in vector field")
+
+    try:
+        image_data = await file.read()
+        result = _organize_service.upload_member_image_with_vector(
+            organize_name, person_name, file.filename, image_data, face_vector
+        )
+        return {"message": "Successfully uploaded image with vector", **result}
     except FileNotFoundError as error:
         raise HTTPException(status_code=404, detail=str(error))
 

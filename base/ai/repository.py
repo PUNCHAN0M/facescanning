@@ -37,6 +37,12 @@ class OrganizeRepository:
     def _get_vector_path(self, organize_name: str) -> Path:
         return self._get_organize_path(organize_name) / "vector"
 
+    def _get_face_vector_path(self, organize_name: str) -> Path:
+        return self._get_organize_path(organize_name) / "face-vector"
+
+    def _get_person_face_vector_path(self, organize_name: str, person_name: str) -> Path:
+        return self._get_face_vector_path(organize_name) / person_name
+
     def _get_person_path(self, organize_name: str, person_name: str) -> Path:
         return self._get_faces_path(organize_name) / person_name
 
@@ -57,8 +63,10 @@ class OrganizeRepository:
     def create_organize(self, organize_name: str) -> None:
         faces_path = self._get_faces_path(organize_name)
         vector_path = self._get_vector_path(organize_name)
+        face_vector_path = self._get_face_vector_path(organize_name)
         faces_path.mkdir(parents=True, exist_ok=True)
         vector_path.mkdir(parents=True, exist_ok=True)
+        face_vector_path.mkdir(parents=True, exist_ok=True)
 
     def rename_organize(self, old_name: str, new_name: str) -> None:
         old_path = self._get_organize_path(old_name)
@@ -93,6 +101,9 @@ class OrganizeRepository:
     def create_person(self, organize_name: str, person_name: str) -> None:
         person_path = self._get_person_path(organize_name, person_name)
         person_path.mkdir(parents=True, exist_ok=True)
+        # Also create face-vector directory for person
+        face_vector_person_path = self._get_person_face_vector_path(organize_name, person_name)
+        face_vector_person_path.mkdir(parents=True, exist_ok=True)
 
     def rename_person(self, organize_name: str, old_name: str, new_name: str) -> None:
         old_path = self._get_person_path(organize_name, old_name)
@@ -108,6 +119,10 @@ class OrganizeRepository:
         person_path = self._get_person_path(organize_name, person_name)
         if person_path.exists():
             shutil.rmtree(person_path)
+        # Also delete face-vector directory for person
+        face_vector_person_path = self._get_person_face_vector_path(organize_name, person_name)
+        if face_vector_person_path.exists():
+            shutil.rmtree(face_vector_person_path)
 
     # ───────── Image Operations ─────────
 
@@ -142,6 +157,49 @@ class OrganizeRepository:
 
     def image_exists(self, organize_name: str, person_name: str, filename: str) -> bool:
         return (self._get_person_path(organize_name, person_name) / filename).exists()
+
+    # ───────── Face Vector Operations ─────────
+
+    def save_face_vector(self, organize_name: str, person_name: str, vector_filename: str, vector: np.ndarray) -> Path:
+        """Save a pre-computed face vector (.npy) for a person."""
+        person_vec_path = self._get_person_face_vector_path(organize_name, person_name)
+        person_vec_path.mkdir(parents=True, exist_ok=True)
+        file_path = person_vec_path / vector_filename
+        np.save(str(file_path), vector)
+        return file_path
+
+    def list_face_vectors(self, organize_name: str, person_name: str) -> List[str]:
+        """List all .npy vector files for a person."""
+        person_vec_path = self._get_person_face_vector_path(organize_name, person_name)
+        if not person_vec_path.exists():
+            return []
+        return sorted(
+            f.name for f in person_vec_path.iterdir()
+            if f.is_file() and f.suffix.lower() == ".npy"
+        )
+
+    def load_all_face_vectors_for_organize(
+        self, organize_name: str
+    ) -> List[Tuple[str, np.ndarray]]:
+        """Load all pre-computed face vectors. Returns list of (person_name, vector)."""
+        results = []
+        face_vector_path = self._get_face_vector_path(organize_name)
+        if not face_vector_path.exists():
+            return results
+
+        for person_directory in sorted(face_vector_path.iterdir()):
+            if not person_directory.is_dir():
+                continue
+            person_name = person_directory.name
+            for npy_file in sorted(person_directory.iterdir()):
+                if npy_file.suffix.lower() != ".npy":
+                    continue
+                try:
+                    vector = np.load(str(npy_file))
+                    results.append((person_name, vector))
+                except Exception as e:
+                    logger.warning(f"Cannot load vector: {npy_file}: {e}")
+        return results
 
     def load_all_face_images_for_organize(
         self, organize_name: str

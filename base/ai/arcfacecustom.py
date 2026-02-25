@@ -75,19 +75,29 @@ class ArcFaceEmbedder:
         embedding = embedder.get_embedding(face_image)
     """
     
-    # Class-level constants
-    MODEL_SEARCH_PATHS = (
-        "../client/public/w600k_mbf.onnx",
-        "w600k_mbf.onnx",
-        "./models/w600k_mbf.onnx",
+    # Supported models — client and server must match
+    SUPPORTED_MODELS = {
+        "w600k_r50": "w600k_r50.onnx",
+        "r100": "r100.onnx",
+        "w600k_mbf": "w600k_mbf.onnx",
+    }
+    DEFAULT_MODEL = "r100"
+    
+    # Search directories (relative to this file)
+    MODEL_SEARCH_DIRS = (
+        "../model",
+        "../client/public",
+        ".",
+        "./models",
     )
     
-    _instance: Optional[ArcFaceEmbedder] = None
+    _instances: dict = {}  # model_key -> ArcFaceEmbedder
     _lock: threading.Lock = threading.Lock()
     
     def __init__(
         self,
         model_path: Optional[str] = None,
+        model_key: Optional[str] = None,
         config: Optional[EmbeddingConfig] = None,
         providers: Optional[List[str]] = None
     ):
@@ -95,11 +105,13 @@ class ArcFaceEmbedder:
         Initialize the ArcFace embedder.
         
         Args:
-            model_path: Path to w600k_mbf.onnx model. Auto-detected if None.
+            model_path: Direct path to .onnx model. Auto-detected if None.
+            model_key: Model key (e.g. "w600k_r50"). Uses DEFAULT_MODEL if None.
             config: Embedding configuration. Uses defaults if None.
             providers: ONNX execution providers. Auto-selected if None.
         """
         self.config = config or EmbeddingConfig()
+        self._model_key = model_key or self.DEFAULT_MODEL
         self._model_path = self._resolve_model_path(model_path)
         self._providers = providers or self._get_default_providers()
         
@@ -114,31 +126,42 @@ class ArcFaceEmbedder:
     def get_instance(
         cls,
         model_path: Optional[str] = None,
+        model_key: Optional[str] = None,
         **kwargs
     ) -> ArcFaceEmbedder:
         """
-        Get singleton instance of ArcFaceEmbedder.
+        Get singleton instance of ArcFaceEmbedder for a given model key.
         
         Thread-safe implementation using double-checked locking.
+        Each model_key gets its own instance.
         
         Args:
             model_path: Optional path to model file
+            model_key: Model key (e.g. "w600k_r50", "w600k_mbf", "r100")
             **kwargs: Additional arguments for initialization
             
         Returns:
-            ArcFaceEmbedder singleton instance
+            ArcFaceEmbedder singleton instance for the given model
         """
-        if cls._instance is None:
+        key = model_key or cls.DEFAULT_MODEL
+        if key not in cls._instances:
             with cls._lock:
-                if cls._instance is None:
-                    cls._instance = cls(model_path=model_path, **kwargs)
-        return cls._instance
+                if key not in cls._instances:
+                    cls._instances[key] = cls(
+                        model_path=model_path,
+                        model_key=key,
+                        **kwargs
+                    )
+        return cls._instances[key]
     
     @classmethod
-    def reset_instance(cls) -> None:
-        """Reset singleton instance. Useful for testing."""
+    def reset_instance(cls, model_key: Optional[str] = None) -> None:
+        """Reset singleton instance(s). If model_key is None, reset all."""
         with cls._lock:
-            cls._instance = None
+            if model_key:
+                cls._instances.pop(model_key, None)
+            else:
+                cls._instances.clear()
     
     def _resolve_model_path(self, model_path: Optional[str]) -> str:
         """
@@ -159,17 +182,25 @@ class ArcFaceEmbedder:
                 return str(path)
             raise FileNotFoundError(f"Model not found at: {model_path}")
         
+        # Get filename for the selected model key
+        model_filename = self.SUPPORTED_MODELS.get(self._model_key)
+        if not model_filename:
+            raise ValueError(
+                f"Unknown model key: '{self._model_key}'. "
+                f"Supported: {list(self.SUPPORTED_MODELS.keys())}"
+            )
+        
         # Auto-detect model path
         base_path = Path(__file__).parent
-        for relative_path in self.MODEL_SEARCH_PATHS:
-            full_path = base_path / relative_path
+        for search_dir in self.MODEL_SEARCH_DIRS:
+            full_path = base_path / search_dir / model_filename
             if full_path.exists():
-                logger.info(f"Found model at: {full_path}")
+                logger.info(f"Found model '{self._model_key}' at: {full_path}")
                 return str(full_path)
         
         raise FileNotFoundError(
-            "Cannot find w600k_mbf.onnx. Please provide model_path. "
-            f"Searched in: {self.MODEL_SEARCH_PATHS}"
+            f"Cannot find {model_filename} for model '{self._model_key}'. "
+            f"Searched in: {self.MODEL_SEARCH_DIRS}"
         )
     
     def _get_default_providers(self) -> List[str]:
@@ -509,7 +540,7 @@ def main():
         "--model",
         type=str,
         default=None,
-        help="Path to w600k_mbf.onnx model"
+        help="Path to w600k_r50.onnx model"
     )
     parser.add_argument(
         "--verbose",

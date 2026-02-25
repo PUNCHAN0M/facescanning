@@ -8,6 +8,8 @@ export {
   FaceDetectionService, 
   getFaceDetectionService,
   FaceDetectionConfig,
+  EMBEDDING_MODELS,
+  DEFAULT_EMBEDDING_MODEL,
   MathUtils 
 } from "./FaceDetectionService";
 
