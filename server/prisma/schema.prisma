@@ -1,12 +1,11 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
+  provider   = "postgresql"
+  extensions = [pgvector(map: "vector")]
 }
 
 enum Role {
@@ -29,7 +28,6 @@ model User {
   businessId String?
   business   Business? @relation(fields: [businessId], references: [id])
 
-  // Track who created this user
   createdById  String?
   createdBy    User?   @relation("UserCreatedBy", fields: [createdById], references: [id])
   createdUsers User[]  @relation("UserCreatedBy")
@@ -125,8 +123,8 @@ model Camera {
 
 model DetectionLog {
   id         String   @id @default(uuid())
-  imagePath  String // Path to the captured face image
-  confidence Float? // Detection confidence score
+  imagePath  String
+  confidence Float?
   createdAt  DateTime @default(now())
 
   // Relations

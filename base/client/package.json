@@ -9,10 +9,16 @@
     "preview": "vite preview"
   },
   "dependencies": {
+<<<<<<< HEAD
     "onnxruntime-web": "^1.16.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^7.13.0"
+=======
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "onnxruntime-web": "^1.16.3"
+>>>>>>> db7fa047df00003a1e872146cd58dc29907082f1
   },
   "devDependencies": {
     "@types/react": "^18.2.43",

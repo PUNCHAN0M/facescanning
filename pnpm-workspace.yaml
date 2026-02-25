@@ -1,0 +1,14 @@
+packages:
+  - client
+  - server
+  - ai
+
+onlyBuiltDependencies:
+  - '@nestjs/core'
+  - '@scarf/scarf'
+  - '@swc/core'
+  - '@tailwindcss/oxide'
+  - bcrypt
+  - esbuild
+  - sharp
+  - unrs-resolver

@@ -1,59 +1,48 @@
-# Face Scanning System
+# 📝 React Nest Template
 
-A face detection system with React frontend and FastAPI backend.
+[![Status: Development](https://img.shields.io/badge/Status-Development-yellow)]()
+[![Platform: Web](https://img.shields.io/badge/Platform-Web-blue)]()
 
-## Client (React + Vite)
+---
 
-### Setup
+## 🛠️ Tech Stack
+
+| Technology   | Icon                                                                                                                   |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| TypeScript   | ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)      |
+| React Router | ![React Router](https://img.shields.io/badge/React_Router-CA4245?style=for-the-badge&logo=reactrouter&logoColor=white) |
+| React        | ![React](https://img.shields.io/badge/React-61DAFB?style=for-the-badge&logo=react&logoColor=black)                     |
+| Vite         | ![Vite](https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&logo=vite&logoColor=white)                        |
+| shadcn UI    | ![shadcn UI](https://img.shields.io/badge/shadcn-ui-8B5CF6?style=for-the-badge&logoColor=white)                        |
+| Tailwind CSS | ![Tailwind CSS](https://img.shields.io/badge/TailwindCSS-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white)  |
+| NestJS       | ![NestJS](https://img.shields.io/badge/NestJS-E0234E?style=for-the-badge&logo=nestjs&logoColor=white)                  |
+| PostgreSQL   | ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-336791?style=for-the-badge&logo=postgresql&logoColor=white)      |
+| Docker       | ![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)                  |
+
+---
+
+## 🚀 Getting Started
+
+### Initial Setup
+
 ```bash
-cd client
-npm install
-npm run dev
+# Install dependencies (root workspace)
+pnpm install
+
+# Setup development environment file
+cp server/.env.example server/.env && cp client/.env.example client/.env
 ```
 
-The client will run on `http://localhost:3000`
+---
 
-### Features
-- Camera access and live video feed
-- YOLO face detection using ONNX Runtime Web
-- Sends frames to server for display
+## 🧹 Lint and Format documents
 
-## Server (FastAPI)
-
-### Setup
 ```bash
-cd sever
-pip install -r requirements.txt
-python app.py
+pnpm lint
 ```
 
-The server will run on `http://localhost:8000`
+---
 
-### Features
-- Receives images from client
-- Displays received images using cv2.imshow
+## 📚 Pre-Commit 📚
 
-## Usage
-
-1. Start the FastAPI server:
-   ```bash
-   cd sever
-   python app.py
-   ```
-
-2. Start the React client:
-   ```bash
-   cd client
-   npm run dev
-   ```
-
-3. Open your browser to `http://localhost:3000`
-4. Allow camera access when prompted
-5. The system will automatically detect faces and send frames to the server
-6. Check the server terminal window to see the cv2.imshow display
-
-## Notes
-
-- Make sure your camera is not being used by another application
-- The ONNX model (yolov12n-face.onnx) must be in the client/public folder
-- The server needs X11 display for cv2.imshow to work (Linux/Mac)
+- please read commitlint.config.js

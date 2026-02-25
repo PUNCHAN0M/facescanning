@@ -2,14 +2,14 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { PrismaModule } from './prisma/prisma.module';
-import { RedisModule } from './redis/redis.module';
-import { CommonModule } from './common/common.module';
-import { AuthModule } from './auth/auth.module';
-import { BusinessModule } from './business/business.module';
-import { PeopleModule } from './people/people.module';
-import { CameraModule } from './camera/camera.module';
-import { DetectionModule } from './detection/detection.module';
+import { FileUploadModule } from '@/common/modules/file-upload/file-upload.module';
+import { PrismaModule } from '@/common/modules/prisma/prisma.module';
+import { RedisModule } from '@/common/modules/redis/redis.module';
+import { AuthModule } from '@/modules/auth/auth.module';
+import { BusinessModule } from '@/modules/business/business.module';
+import { CameraModule } from '@/modules/camera/camera.module';
+import { DetectionModule } from '@/modules/detection/detection.module';
+import { PeopleModule } from '@/modules/people/people.module';
 
 @Module({
   imports: [
@@ -18,7 +18,7 @@ import { DetectionModule } from './detection/detection.module';
     }),
     PrismaModule,
     RedisModule,
-    CommonModule,
+    FileUploadModule,
     AuthModule,
     BusinessModule,
     PeopleModule,

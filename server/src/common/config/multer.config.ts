@@ -1,7 +1,8 @@
+import { Request } from 'express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { Request } from 'express';
+
 import { BadRequestException } from '@nestjs/common';
 
 // Allowed image mime types

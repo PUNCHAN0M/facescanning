@@ -32,7 +32,11 @@ logs/
 # Environment variables
 .env
 .env.local
+<<<<<<< HEAD
 node_modules/
+=======
+
+>>>>>>> db7fa047df00003a1e872146cd58dc29907082f1
 # OS
 .DS_Store
 Thumbs.db
@@ -45,6 +49,7 @@ client/.vite/
 # Temporary files
 *.tmp
 temp/
+<<<<<<< HEAD
 
 # Large files and models
 *.bin
@@ -57,3 +62,5 @@ temp/
 *.cache
 .cache/
 ./model/*
+=======
+>>>>>>> db7fa047df00003a1e872146cd58dc29907082f1
