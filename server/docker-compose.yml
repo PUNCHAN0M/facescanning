@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: face-scan-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+      POSTGRES_DB: facescan
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - face-scan-network
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: face-scan-pgadmin
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@facescan.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+    ports:
+      - '5050:80'
+    depends_on:
+      - postgres
+    networks:
+      - face-scan-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: face-scan-redis
+    restart: always
+    command: redis-server --requirepass redis123
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    networks:
+      - face-scan-network
+
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: face-scan-redis-commander
+    restart: always
+    environment:
+      REDIS_HOSTS: local:face-scan-redis:6379:0:redis123
+    ports:
+      - '8081:8081'
+    depends_on:
+      - redis
+    networks:
+      - face-scan-network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  face-scan-network:
+    driver: bridge
