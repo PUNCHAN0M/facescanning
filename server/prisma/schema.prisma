@@ -1,0 +1,147 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  firstName String?
+  lastName  String?
+  role      Role
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  businessId String?
+  business   Business? @relation(fields: [businessId], references: [id])
+
+  // Track who created this user
+  createdById  String?
+  createdBy    User?   @relation("UserCreatedBy", fields: [createdById], references: [id])
+  createdUsers User[]  @relation("UserCreatedBy")
+
+  @@index([email])
+  @@index([businessId])
+  @@map("users")
+}
+
+model Business {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  users         User[]
+  people        Person[]
+  cameras       Camera[]
+  detectionLogs DetectionLog[]
+
+  @@index([name])
+  @@map("businesses")
+}
+
+model Person {
+  id          String   @id @default(uuid())
+  firstName   String
+  lastName    String
+  email       String?
+  phone       String?
+  position    String?
+  department  String?
+  employeeId  String?
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  businessId    String
+  business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  faceImages    FaceImage[]
+  detectionLogs DetectionLog[]
+
+  @@index([businessId])
+  @@index([email])
+  @@index([employeeId])
+  @@map("people")
+}
+
+model FaceImage {
+  id        String   @id @default(uuid())
+  fileName  String
+  filePath  String
+  fileSize  Int?
+  mimeType  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  personId String
+  person   Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@index([personId])
+  @@map("face_images")
+}
+
+model Camera {
+  id          String   @id @default(uuid())
+  name        String
+  location    String?
+  ipAddress   String?
+  port        Int?
+  username    String?
+  password    String?
+  streamUrl   String?
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  businessId    String
+  business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  detectionLogs DetectionLog[]
+
+  @@index([businessId])
+  @@map("cameras")
+}
+
+model DetectionLog {
+  id         String   @id @default(uuid())
+  imagePath  String // Path to the captured face image
+  confidence Float? // Detection confidence score
+  createdAt  DateTime @default(now())
+
+  // Relations
+  personId String
+  person   Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  cameraId String
+  camera   Camera @relation(fields: [cameraId], references: [id], onDelete: Cascade)
+
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([personId])
+  @@index([cameraId])
+  @@index([businessId])
+  @@index([createdAt])
+  @@map("detection_logs")
+}
