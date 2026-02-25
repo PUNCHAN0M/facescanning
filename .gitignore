@@ -56,3 +56,9 @@ temp/
 # Cache files
 *.cache
 .cache/
+
+model/*
+base/model
+base/client/public/*
+base/model
+client/public
